@@ -1,6 +1,8 @@
-# Sample testbench for a Tiny Tapeout project
+# Test Suite for TPU
 
-This is a sample testbench for a Tiny Tapeout project. It uses [cocotb](https://docs.cocotb.org/en/stable/) to drive the DUT and check the outputs.
+This folder contains all code used to interface with the hardware in simulation, primarily for pre-silicon verification.
+
+It uses [cocotb](https://docs.cocotb.org/en/stable/) to drive the Device-Under-Test (DUT) and check the outputs.
 See below to get started or for more information, check the [website](https://tinytapeout.com/hdl/testing/).
 
 ## Setting up

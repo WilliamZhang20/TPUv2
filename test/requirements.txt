@@ -1,2 +1,3 @@
-pytest==8.4.2
-cocotb==2.0.1
+pytest==8.3.4
+cocotb==1.9.2
+numpy==2.1.3

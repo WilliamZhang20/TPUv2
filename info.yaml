@@ -1,56 +1,62 @@
 # Tiny Tapeout project information
 project:
-  title:        ""      # Project title
-  author:       ""      # Your name
-  discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  ""      # One line description of what your project does
+  title:        "Tensor Processing Unit v2"      # Project title
+  author:       "William Zhang"      # Your name
+  discord:      "walrus_23"      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
+  description:  "multiplies fp8 matrices"      # One line description of what your project does
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
-  clock_hz:     0       # Clock frequency in Hz (or 0 if not applicable)
+  clock_hz:     50000000       # Clock frequency in Hz (or 0 if not applicable)
 
   # How many tiles your design occupies? A single tile is about 167x108 uM.
-  tiles: "1x1"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
+  tiles: "1x2"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
 
   # Your top module name must start with "tt_um_". Make it unique by including your github username:
-  top_module:  "tt_um_example"
+  top_module:  "tt_um_tpu"
 
   # List your project's source files here.
   # Source files must be in ./src and you must list each source file separately, one per line.
   # Don't forget to also update `PROJECT_SOURCES` in test/Makefile.
   source_files:
-    - "project.v"
+    - "tpu.v"
+    - "systolic_array_2x2.v"
+    - "PE.v"
+    - "memory.v"
+    - "control_unit.v"
+    - "mmu_feeder.v"
+    - "delay_cell.v"
 
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 # This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
 pinout:
   # Inputs
-  ui[0]: ""
-  ui[1]: ""
-  ui[2]: ""
-  ui[3]: ""
-  ui[4]: ""
-  ui[5]: ""
-  ui[6]: ""
-  ui[7]: ""
+  ui[0]: "IN0"
+  ui[1]: "IN1"
+  ui[2]: "IN2"
+  ui[3]: "IN3"
+  ui[4]: "IN4"
+  ui[5]: "IN5"
+  ui[6]: "IN6"
+  ui[7]: "IN7"
 
   # Outputs
-  uo[0]: ""
-  uo[1]: ""
-  uo[2]: ""
-  uo[3]: ""
-  uo[4]: ""
-  uo[5]: ""
-  uo[6]: ""
-  uo[7]: ""
+  uo[0]: "OUT0"
+  uo[1]: "OUT1"
+  uo[2]: "OUT2"
+  uo[3]: "OUT3"
+  uo[4]: "OUT4"
+  uo[5]: "OUT5"
+  uo[6]: "OUT6"
+  uo[7]: "OUT7"
 
   # Bidirectional pins
-  uio[0]: ""
-  uio[1]: ""
-  uio[2]: ""
-  uio[3]: ""
-  uio[4]: ""
-  uio[5]: ""
-  uio[6]: ""
-  uio[7]: ""
+  uio[0]: "LOAD_EN (input)"
+  uio[1]: "TRANSPOSE (input)"
+  uio[2]: "ACTIVATION (input)"
+  uio[3]: "Unused"
+  uio[4]: "Unused"
+  uio[5]: "Unused"
+  uio[6]: "Unused"
+  uio[7]: "DONE (output)"
 
 # Do not change!
 yaml_version: 6

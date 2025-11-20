@@ -9,12 +9,12 @@ You can also include images in this folder and reference them in the markdown. E
 
 ## How it works
 
-Explain how your project works
+The project is an AI chip inspired by Google's TPU. It multiply 8-bit floating-point valued matrices. It does so by tiling in 2x2 to fit on the chip's tiny area, so expect performance degradation compared to regular chips. However, the chip's I/O bandwidth will be fully utilized and saturated.
 
 ## How to test
 
-Explain how to use your project
+Use cocotb and [pyuvm](https://github.com/pyuvm/pyuvm) to lean towards [IEEE-1800.2](https://blogs.sw.siemens.com/verificationhorizons/2015/07/30/uvm-the-next-ieee-standard-1800-2/).
 
 ## External hardware
 
-List external hardware used in your project (e.g. PMOD, LED display, etc), if any
+Connect the PCB board with the Tiny Tapeout chips (a.k.a. a Raspberry Pi) to a personal computer via USB.
