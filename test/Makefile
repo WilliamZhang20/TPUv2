@@ -7,7 +7,7 @@ FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
 PROJECT_SOURCES = tpu.v \
-					systolic_array_2x2.v \
+ 				  	systolic_array_2x2.v \
 					control_unit.v \
 					PE.v \
 					mmu_feeder.v \
