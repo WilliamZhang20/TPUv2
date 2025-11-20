@@ -2,6 +2,11 @@
 
 # Tiny Tapeout Verilog Project Template
 
+- After reading Elon Musk discuss the efficiency trade-offs between integer and floating-point computation for Tesla AI5/AI6 chips, I thought of trying it myself on free ASIC tools here on TinyTapeout.
+- Since I already have a fully-fledged [TPU](https://github.com/WilliamZhang20/ECE298A-TPU) that does 8-bit integer (INT8) arithmetic we should now do FP8.
+- With the previous project, I had tried doing FP8 with BF16 accumulation, but the chip area blew up. In retrospect, this was likely because I took extra space converting BF16 to FP8.
+- Later on in the previous project, I got rid of 8-bit outputs and kept every output in 16-bit numbers. So no more back-conversion waste, time to try it out again.
+
 - [Read the documentation for project](docs/info.md)
 
 ## What is Tiny Tapeout?
