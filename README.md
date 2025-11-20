@@ -3,9 +3,9 @@
 # Tiny Tapeout Tensor Processing Unit Version 2
 
 - After reading Elon Musk discuss the efficiency trade-offs between integer and floating-point computation for Tesla AI5/AI6 chips in an X thread, I thought of testing the idea myself using free ASIC tools on Tiny Tapeout.
-- Since I already have a fully-fledged [TPU](https://github.com/WilliamZhang20/ECE298A-TPU) that does 8-bit integer (INT8) arithmetic we only just convert some parts FP8 and make sure everything else works.
+- Since I already have a fully-fledged [TPU](https://github.com/WilliamZhang20/ECE298A-TPU) that does 8-bit integer (INT8) arithmetic we only just convert some logic FP8 and make sure everything else works.
 - With the previous project, I had tried doing FP8 with BF16 accumulation, but the chip area blew up. In retrospect, this was likely because I took extra space converting BF16 to FP8 for 8-bit ouptuts.
-- Later on in the previous project, I got rid of 8-bit outputs and kept every output in 16-bit numbers. So with more back-conversion waste expected, time to try it out again.
+- Later on in the previous project, I got rid of 8-bit outputs and kept every output in 16-bit numbers. So with back-conversion waste eliminated, time to try it out again.
 
 - [Read the documentation for project](docs/info.md)
 
