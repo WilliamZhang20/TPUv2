@@ -2,9 +2,6 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, RisingEdge
 import numpy as np
-from cocotb.utils import get_sim_time
-import itertools
-import torch
 
 async def reset_dut(dut):
     dut.ena.value = 1
