@@ -1,93 +1,105 @@
 module PE #(
-    input  logic             clk,
-    input  logic             rst,
-    input  logic             clear,     // load new value
-    input  logic [7:0]       a_in,      // FP8 E4M3
-    input  logic [7:0]       b_in,
-    output logic [7:0]       a_out,
-    output logic [7:0]       b_out,
-    output logic [15:0]      c_out       // BF16
+    parameter ACC_WIDTH = 24      // efficient accumulator size
+)(
+    input  wire         clk,
+    input  wire         rst,
+    input  wire         clear,
+
+    input  wire [7:0]   a_in,     // FP8 E4M3 (subnormals flushed)
+    input  wire [7:0]   b_in,
+
+    output reg  [7:0]   a_out,
+    output reg  [7:0]   b_out,
+    output reg  [15:0]  c_out     // BF16 output after convert
 );
 
-    // ==================== FP8 decode & multiply (combinational) ====================
-    logic        sign_p   = a_in[7] ^ b_in[7];
-    logic [3:0]  exp_a    = a_in[6:3];
-    logic [3:0]  exp_b    = b_in[6:3];
-    logic [3:0]  mant_a   = (exp_a != 0) ? {1'b1, a_in[2:0]} : 4'd0;
-    logic [3:0]  mant_b   = (exp_b != 0) ? {1'b1, b_in[2:0]} : 4'd0;
-    logic [7:0]  mant_prod = mant_a * mant_b;                 // 0 or 64..225
-    logic [8:0]  exp_sum   = exp_a + exp_b;
-    logic        is_zero   = (mant_prod == 0) || (exp_a == 0) || (exp_b == 0);
+    // --------------------------------------------------------------------
+    // 1. Ultra-light FP8 Decode
+    // Subnormals → zero
+    // Mantissa = 1.xxx (4-bit int), Exponent = exp - 7
+    // --------------------------------------------------------------------
+    wire sign_a = a_in[7];
+    wire sign_b = b_in[7];
+    wire sign_p = sign_a ^ sign_b;
 
-    // ==================== FP8×FP8 → rounded BF16 (combinational) ====================
-    logic [7:0]  bf_exp;
-    logic [6:0]  bf_mant;
-    logic [15:0] bf_prod;
+    wire [3:0] exp_a  = a_in[6:3];
+    wire [3:0] exp_b  = b_in[6:3];
 
-    always_comb begin
-        bf_exp  = 8'd0;
-        bf_mant = 7'd0;
+    wire [3:0] mant_a = (exp_a == 4'd0) ? 4'd0 : {1'b1, a_in[2:0]};
+    wire [3:0] mant_b = (exp_b == 4'd0) ? 4'd0 : {1'b1, b_in[2:0]};
 
-        if (!is_zero) begin
-            logic [7:0] mant_tmp     = mant_prod[7] ? mant_prod : (mant_prod << 1);
-            logic [8:0] exp_base     = mant_prod[7] ? 9'd120 : 9'd119;
-            logic       round_up     = mant_tmp[0];
-            logic [7:0] mant_rounded = mant_tmp[7:1] + round_up;
+    wire signed [5:0] e_a = $signed({1'b0, exp_a}) - 6'd7;
+    wire signed [5:0] e_b = $signed({1'b0, exp_b}) - 6'd7;
 
-            bf_exp  = exp_sum + exp_base;
-            if (mant_rounded[7]) begin
-                bf_mant = mant_rounded[7:1];
-                bf_exp  = bf_exp + 1;
-            end else begin
-                bf_mant = mant_rounded[6:0];
-            end
+    // --------------------------------------------------------------------
+    // 2. INT multiply + shift exponent sum
+    // --------------------------------------------------------------------
+    wire [7:0] mant_prod = mant_a * mant_b; // 8-bit
+
+    wire signed [6:0] shift_amt = e_a + e_b;
+
+    // Shift in a bounded range (-7..+8 typical)
+    wire signed [23:0] prod_shifted = 
+        (shift_amt >= 0) ? 
+            ({{16{1'b0}}, mant_prod} << shift_amt) :
+            ({{16{1'b0}}, mant_prod} >> (-shift_amt));
+
+    wire signed [23:0] prod = sign_p ? -prod_shifted : prod_shifted;
+
+    // --------------------------------------------------------------------
+    // 3. INT accumulator
+    // --------------------------------------------------------------------
+    reg signed [23:0] acc;
+
+    // Convert INT24 → BF16 (approx, efficient)
+    function automatic [15:0] int24_to_bf16(input signed [23:0] x);
+        reg sign;
+        reg [23:0] mag;
+        reg [7:0] exponent;
+        reg [6:0] mant;
+    begin
+        if (x == 0) begin
+            int24_to_bf16 = 16'h0000;
+        end else begin
+            sign = x[23];
+            mag = sign ? -x : x;
+
+            // Normalize by finding highest bit
+            // Since ACC_WIDTH small, simple if-chain
+            if (mag[23]) begin exponent = 127+23; mant = mag[22:16]; end
+            else if (mag[22]) begin exponent = 127+22; mant = mag[21:15]; end
+            else if (mag[21]) begin exponent = 127+21; mant = mag[20:14]; end
+            else if (mag[20]) begin exponent = 127+20; mant = mag[19:13]; end
+            else if (mag[19]) begin exponent = 127+19; mant = mag[18:12]; end
+            else if (mag[18]) begin exponent = 127+18; mant = mag[17:11]; end
+            else if (mag[17]) begin exponent = 127+17; mant = mag[16:10]; end
+            else if (mag[16]) begin exponent = 127+16; mant = mag[15:9]; end
+            else if (mag[15]) begin exponent = 127+15; mant = mag[14:8]; end
+            else if (mag[14]) begin exponent = 127+14; mant = mag[13:7]; end
+            else if (mag[13]) begin exponent = 127+13; mant = mag[12:6]; end
+            else begin exponent = 0; mant = 0; end
+
+            int24_to_bf16 = {sign, exponent, mant};
         end
     end
-
-    assign bf_prod = {sign_p, bf_exp, bf_mant};
-
-    // ==================== Full combinational BF16 adder ====================
-    function automatic logic [15:0] bf16_add(input [15:0] a, b);
-        logic sa = a[15], sb = b[15];
-        logic [7:0] ea = a[14:7], eb = b[14:7];
-        logic [8:0] ma = (ea != 0) ? {2'b01, a[6:0]} : 9'd0;
-        logic [8:0] mb = (eb != 0) ? {2'b01, b[6:0]} : 9'd0;
-        logic [7:0] e_out;
-        logic [9:0] m_sum;
-
-        if (ea >= eb) begin
-            e_out = ea;
-            mb    = mb >> (ea - eb);
-        end else begin
-            e_out = eb;
-            ma    = ma >> (eb - ea);
-        end
-
-        if (sa == sb) begin
-            m_sum = {1'b0, ma} + {1'b0, mb};
-            bf16_add = {sa, e_out + m_sum[9], m_sum[8:2]};
-        end else if (ma >= mb) begin
-            m_sum = {1'b0, ma} - {1'b0, mb};
-            bf16_add = {sa, e_out, m_sum[8:2]};
-        end else begin
-            m_sum = {1'b0, mb} - {1'b0, ma};
-            bf16_add = {sb, e_out, m_sum[8:2]};
-        end
     endfunction
 
-    logic [15:0] sum = bf16_add(c_out, bf_prod);
-
-    // ==================== Accumulator register (only thing clocked) ====================
-    always_ff @(posedge clk) begin
+    // --------------------------------------------------------------------
+    // 4. Pipeline
+    // --------------------------------------------------------------------
+    always @(posedge clk) begin
         a_out <= a_in;
         b_out <= b_in;
 
         if (rst)
-            c_out <= 16'd0;
+            acc <= 24'd0;
         else if (clear)
-            c_out <= bf_prod;
+            acc <= prod;
         else
-            c_out <= sum;           // sum is fully combinational → c_out valid SAME cycle
+            acc <= acc + prod;
+
+        // Convert accumulator to BF16 each cycle (or only at readout)
+        c_out <= int24_to_bf16(acc);
     end
 
 endmodule
