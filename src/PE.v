@@ -1,4 +1,4 @@
-module PE_fp8_bf16_mac #(
+module PE #(
     parameter int WIDTH = 8
 )(
     input  logic             clk,
@@ -136,3 +136,4 @@ module PE_fp8_bf16_mac #(
     assign c_out = acc;
 
 endmodule
+
