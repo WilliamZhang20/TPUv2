@@ -1,21 +1,19 @@
 module PE (
-    input  wire         clk,
-    input  wire         rst,
-    input  wire         clear,
+    input  wire                    clk,
+    input  wire                    rst,
+    input  wire                    clear,
 
-    input  wire [7:0]   a_in,     // FP8 E4M3 (subnormals flushed)
-    input  wire [7:0]   b_in,
+    input  wire [7:0]              a_in,   // FP8 E4M3
+    input  wire [7:0]              b_in,   // FP8 E4M3
 
-    output reg  [7:0]   a_out,
-    output reg  [7:0]   b_out,
-    output reg  [15:0]  c_out     // BF16 output after convert
+    output reg  [7:0]              a_out,
+    output reg  [7:0]              b_out,
+    output reg  [15:0]             c_out   // BF16 accumulator
 );
 
-    // --------------------------------------------------------------------
-    // 1. Ultra-light FP8 Decode
-    // Subnormals → zero
-    // Mantissa = 1.xxx (4-bit int), Exponent = exp - 7
-    // --------------------------------------------------------------------
+    // ================================================================
+    // 1. FP8 Decode → Integer mant, exp, sign
+    // ================================================================
     wire sign_a = a_in[7];
     wire sign_b = b_in[7];
     wire sign_p = sign_a ^ sign_b;
@@ -23,82 +21,116 @@ module PE (
     wire [3:0] exp_a  = a_in[6:3];
     wire [3:0] exp_b  = b_in[6:3];
 
-    wire [3:0] mant_a = (exp_a == 4'd0) ? 4'd0 : {1'b1, a_in[2:0]};
-    wire [3:0] mant_b = (exp_b == 4'd0) ? 4'd0 : {1'b1, b_in[2:0]};
+    wire [3:0] mant_a = (exp_a == 0) ? 0 : {1'b1, a_in[2:0]}; // 8..15
+    wire [3:0] mant_b = (exp_b == 0) ? 0 : {1'b1, b_in[2:0]};
 
-    wire signed [5:0] e_a = $signed({1'b0, exp_a}) - 6'd7;
-    wire signed [5:0] e_b = $signed({1'b0, exp_b}) - 6'd7;
+    // 4×4 → 8-bit multiply
+    wire [7:0] mant_prod_raw = mant_a * mant_b;
 
-    // --------------------------------------------------------------------
-    // 2. INT multiply + shift exponent sum
-    // --------------------------------------------------------------------
-    wire [7:0] mant_prod = mant_a * mant_b; // 8-bit
+    // FP8 bias = 7
+    wire [9:0] exp_sum_raw = exp_a + exp_b - 7;
 
-    wire signed [6:0] shift_amt = e_a + e_b;
+    wire prod_zero = (mant_prod_raw == 0) | (exp_a == 0) | (exp_b == 0);
 
-    // Shift in a bounded range (-7..+8 typical)
-    wire signed [23:0] prod_shifted = 
-        (shift_amt >= 0) ? 
-            ({{16{1'b0}}, mant_prod} << shift_amt) :
-            ({{16{1'b0}}, mant_prod} >> (-shift_amt));
+    // ================================================================
+    // 2. Normalize INT mantissa product → BF16 format
+    //       mant_prod_raw is 8–225
+    //       => represent as 1.xxxxx BF16 mantissa (7 bits)
+    // ================================================================
+    reg  [7:0] mant_norm;
+    reg  [7:0] exp_norm;
 
-    wire signed [23:0] prod = sign_p ? -prod_shifted : prod_shifted;
+    always @(*) begin
+        if (prod_zero) begin
+            mant_norm = 0;
+            exp_norm  = 0;
+        end
+        else if (mant_prod_raw[7]) begin
+            // 1xx.xxxxx range → shift down 1 bit
+            // mantissa: top 7 bits
+            mant_norm = mant_prod_raw[7:1]; 
+            exp_norm  = exp_sum_raw + 127 + 1;
+        end 
+        else begin
+            // 0xx.xxxxx range → already normalized
+            mant_norm = mant_prod_raw[6:0];
+            exp_norm  = exp_sum_raw + 127;
+        end
+    end
 
-    // --------------------------------------------------------------------
-    // 3. INT accumulator
-    // --------------------------------------------------------------------
-    reg signed [23:0] acc;
+    // ================================================================
+    // 3. Reconstruct BF16 product
+    // ================================================================
+    wire [15:0] bf16_prod = {sign_p, exp_norm, mant_norm};
 
-    // Convert INT24 → BF16 (approx, efficient)
-    function automatic [15:0] int24_to_bf16(input signed [23:0] x);
-        reg sign;
-        reg [23:0] mag;
-        reg [7:0] exponent;
-        reg [6:0] mant;
+    // ================================================================
+    // 4. BF16 adder (your original one)
+    // ================================================================
+    function automatic [15:0] bf16_add(
+        input [15:0] a,
+        input [15:0] b
+    );
+        reg signa, signb, signr;
+        reg [7:0] expa, expb, expr, ediff;
+        reg [9:0] ma, mb, ms;
     begin
-        if (x == 0) begin
-            int24_to_bf16 = 16'h0000;
+        // unpack
+        signa = a[15];
+        expa  = a[14:7];
+        ma    = (expa == 8'd0) ? 10'd0 : {1'b1, a[6:0], 1'b0};
+    
+        signb = b[15];
+        expb  = b[14:7];
+        mb    = (expb == 8'd0) ? 10'd0 : {1'b1, b[6:0], 1'b0};
+    
+        // exponent align
+        if (expa > expb) begin
+            ediff = expa - expb;
+            expr  = expa;
+            mb    = mb >> ediff;
         end else begin
-            sign = x[23];
-            mag = sign ? -x : x;
-
-            // Normalize by finding highest bit
-            // Since ACC_WIDTH small, simple if-chain
-            if (mag[23]) begin exponent = 127+23; mant = mag[22:16]; end
-            else if (mag[22]) begin exponent = 127+22; mant = mag[21:15]; end
-            else if (mag[21]) begin exponent = 127+21; mant = mag[20:14]; end
-            else if (mag[20]) begin exponent = 127+20; mant = mag[19:13]; end
-            else if (mag[19]) begin exponent = 127+19; mant = mag[18:12]; end
-            else if (mag[18]) begin exponent = 127+18; mant = mag[17:11]; end
-            else if (mag[17]) begin exponent = 127+17; mant = mag[16:10]; end
-            else if (mag[16]) begin exponent = 127+16; mant = mag[15:9]; end
-            else if (mag[15]) begin exponent = 127+15; mant = mag[14:8]; end
-            else if (mag[14]) begin exponent = 127+14; mant = mag[13:7]; end
-            else if (mag[13]) begin exponent = 127+13; mant = mag[12:6]; end
-            else begin exponent = 0; mant = 0; end
-
-            int24_to_bf16 = {sign, exponent, mant};
+            ediff = expb - expa;
+            expr  = expb;
+            ma    = ma >> ediff;
+        end
+    
+        // add/sub mantissa
+        if (signa == signb) begin
+            ms    = ma + mb;
+            signr = signa;
+        end else if (ma >= mb) begin
+            ms    = ma - mb;
+            signr = signa;
+        end else begin
+            ms    = mb - ma;
+            signr = signb;
+        end
+    
+        // normalize result
+        if (ms[9]) begin
+            // carry-out → shift right, add 1 to exponent
+            bf16_add = {signr, expr + 8'd1, ms[9:3]};
+        end else if (ms[8]) begin
+            bf16_add = {signr, expr, ms[8:2]};
+        end else begin
+            bf16_add = 16'h0000;
         end
     end
     endfunction
 
-    // --------------------------------------------------------------------
-    // 4. Pipeline
-    // --------------------------------------------------------------------
+    // ================================================================
+    // 5. Pipeline + BF16 accumulation (unchanged)
+    // ================================================================
     always @(posedge clk) begin
         a_out <= a_in;
         b_out <= b_in;
 
         if (rst)
-            acc <= 24'd0;
+            c_out <= 16'd0;
         else if (clear)
-            acc <= prod;
+            c_out <= bf16_prod;
         else
-            acc <= acc + prod;
-
-        // Convert accumulator to BF16 each cycle (or only at readout)
-        c_out <= int24_to_bf16(acc);
+            c_out <= bf16_add(c_out, bf16_prod);
     end
 
 endmodule
-
