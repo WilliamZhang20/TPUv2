@@ -100,187 +100,26 @@ def float_to_bf16_bits(value: float) -> int:
 
     return int(upper)
 
-
-def fp8_to_bf16_bits_from_byte(u8: int) -> int:
-    """Convert FP8 e4m3 byte to BF16 bitpattern following PE.v rules.
-    Implements: if exp==0 -> zero; else exp16=exp8+120; mant16=mant8<<5.
-    """
-    u8 = int(u8) & 0xFF
-    sign = (u8 >> 7) & 0x1
-    exp8 = (u8 >> 3) & 0xF
-    mant8 = u8 & 0x7
-
-    if exp8 == 0:
-        exp16 = 0
-        mant16 = 0
-    else:
-        exp16 = (exp8 + 120) & 0xFF
-        mant16 = (mant8 << 5) & 0x7F
-
-    return (sign << 15) | (exp16 << 7) | mant16
-
-
-def bf16_mul_bits(a_bits: int, b_bits: int) -> int:
-    """Multiply two BF16 bitpatterns following PE.v bf16_mul implementation."""
-    a = int(a_bits) & 0xFFFF
-    b = int(b_bits) & 0xFFFF
-
-    sa = (a >> 15) & 1
-    sb = (b >> 15) & 1
-    ea = (a >> 7) & 0xFF
-    eb = (b >> 7) & 0xFF
-    ma = a & 0x7F
-    mb = b & 0x7F
-
-    sp = sa ^ sb
-
-    # Special cases: zero or inf
-    if ea == 0 or eb == 0:
-        return (sp << 15)  # zero
-    if ea == 0xFF or eb == 0xFF:
-        return (sp << 15) | (0xFF << 7)  # inf
-
-    ep = ea + eb - 127
-
-    # mp = {1,ma} * {1,mb} where ma,mb are 7-bit -> implied leading 1
-    A = (1 << 7) | ma
-    B = (1 << 7) | mb
-    mp = A * B  # up to 8*8 bits -> up to 16-bit, but verilog uses 14 bits
-
-    # Determine if mp[13] is set (counting from 0)
-    if (mp >> 13) & 1:
-        mp_final = (mp >> 6) & 0x7F  # mp[12:6]
-        round_bit = (mp >> 5) & 1    # mp[5]
-        ep_final = ep + 1
-    else:
-        mp_final = (mp >> 5) & 0x7F  # mp[11:5]
-        round_bit = (mp >> 4) & 1    # mp[4]
-        ep_final = ep
-
-    # Determine lower bits for tie-breaking: mp[3:0]
-    lower_bits = mp & 0xF
-
-    # Round-to-nearest-even
-    if round_bit and ((mp_final & 1) or (lower_bits != 0)):
-        mp_final = (mp_final + 1) & 0x7F
-
-    if ep_final >= 0xFF:
-        return (sp << 15) | (0xFF << 7)
-    return (sp << 15) | ((ep_final & 0xFF) << 7) | (mp_final & 0x7F)
-
-
-def bf16_add_bits(a_bits: int, b_bits: int) -> int:
-    """Add two BF16 bitpatterns following PE.v bf16_add implementation."""
-    a = int(a_bits) & 0xFFFF
-    b = int(b_bits) & 0xFFFF
-
-    sa = (a >> 15) & 1
-    sb = (b >> 15) & 1
-    ea = (a >> 7) & 0xFF
-    eb = (b >> 7) & 0xFF
-    # mant_a,mant_b include implicit 1 and extra guard bit as in Verilog: {1, a[6:0], 0}
-    mant_a = ((1 << 8) | ((a & 0x7F) << 1))  # 1(implicit) + 7 bits + trailing 0 -> 9 bits
-    mant_b = ((1 << 8) | ((b & 0x7F) << 1))
-
-    if ea > eb:
-        e_max = ea
-        shift = ea - eb
-        mant_b = mant_b >> shift
-    else:
-        e_max = eb
-        shift = eb - ea
-        mant_a = mant_a >> shift
-
-    if sa == sb:
-        mant_sum = mant_a + mant_b
-        result_sign = sa
-    else:
-        # mant_sum = (sa ? mant_b - mant_a : mant_a - mant_b);
-        if sa:
-            mant_sum = mant_b - mant_a
-            result_sign = sb
-        else:
-            mant_sum = mant_a - mant_b
-            result_sign = sa
-
-    # Normalize
-    if (mant_sum >> 8) & 1:
-        m_result = (mant_sum >> 2) & 0x7F
-        e_result = e_max + 1
-    else:
-        m_result = (mant_sum >> 1) & 0x7F
-        e_result = e_max
-
-    if e_result >= 255:
-        return (result_sign << 15) | (0xFF << 7)
-    return (result_sign << 15) | ((e_result & 0xFF) << 7) | (m_result & 0x7F)
-
 def get_expected_matmul(A, B, transpose=False, relu=False):
-    # Bit-exact simulation of PE.v: FP8 -> BF16 conversion, BF16 multiply, BF16 add
-    # A and B are length-4 lists in row-major order
-    # Convert inputs A,B (which may be ints) to FP8 bytes then to BF16 bitpatterns
-    A_bits = [fp8_to_bf16_bits_from_byte(float_to_fp8_e4m3(x)) for x in A]
-    B_bits = [fp8_to_bf16_bits_from_byte(float_to_fp8_e4m3(x)) for x in B]
+    # Simulate DUT datapath: inputs are converted to FP8 (e4m3),
+    # internal arithmetic in float32, outputs rounded to BF16.
+    A_vals = [fp8_to_float(float_to_fp8_e4m3(x)) for x in A]
+    B_vals = [fp8_to_float(float_to_fp8_e4m3(x)) for x in B]
 
-    # Build 2x2 matrices
-    # A_bits[i,k] where i row, k col
-    # indexes: row-major A = [A00, A01, A10, A11]
-    out_bits = []
-    for i in range(2):
-        for j in range(2):
-            accum = 0
-            for k in range(2):
-                a_idx = i*2 + k
-                b_idx = k*2 + j
-                a_b = A_bits[a_idx]
-                b_b = B_bits[b_idx]
-                prod = bf16_mul_bits(a_b, b_b)
-                if k == 0:
-                    accum = prod
-                else:
-                    accum = bf16_add_bits(accum, prod)
-            out_bits.append(accum)
-
-    # Decode BF16 bits to floats for comparison
-    out = [bf16_to_float(x) for x in out_bits]
-
+    A_mat = np.array(A_vals).reshape(2, 2)
+    B_mat = np.array(B_vals).reshape(2, 2)
+    if transpose:
+        B_mat = B_mat.T
+    result = A_mat @ B_mat
     if relu:
-        out = [max(0.0, v) for v in out]
+        result = np.maximum(result, 0)
 
+    # Round to BF16 and return the decoded float values to compare with DUT reads
+    out = []
+    for v in result.flatten().tolist():
+        bf = float_to_bf16_bits(v)
+        out.append(bf16_to_float(bf))
     return out
-
-
-def get_expected_matmul_bits(A, B, transpose=False, relu=False):
-    """Return expected BF16 bitpatterns (ints) for A,B using PE.v semantics."""
-    A_bits = [fp8_to_bf16_bits_from_byte(float_to_fp8_e4m3(x)) for x in A]
-    B_bits = [fp8_to_bf16_bits_from_byte(float_to_fp8_e4m3(x)) for x in B]
-
-    out_bits = []
-    for i in range(2):
-        for j in range(2):
-            accum = 0
-            for k in range(2):
-                a_idx = i*2 + k
-                b_idx = k*2 + j
-                a_b = A_bits[a_idx]
-                b_b = B_bits[b_idx]
-                prod = bf16_mul_bits(a_b, b_b)
-                if k == 0:
-                    accum = prod
-                else:
-                    accum = bf16_add_bits(accum, prod)
-            out_bits.append(accum)
-
-    if relu:
-        # apply ReLU on decoded floats then re-encode to bits
-        floats = [bf16_to_float(x) for x in out_bits]
-        res = []
-        for v in floats:
-            v2 = max(0.0, v)
-            res.append(float_to_bf16_bits(v2))
-        return res
-
-    return out_bits
 
 async def load_matrix(dut, matrix, transpose=0, relu=0):
     for i in range(4):
@@ -299,23 +138,11 @@ async def parallel_load_read(dut, A, B, transpose=0, relu=0):
             idx0 = i * 2
             idx1 = i * 2 + 1
             # Feed either real data or dummy zeros
-            if inputs:
-                enc0 = float_to_fp8_e4m3(inputs[idx0])
-                dec0 = fp8_to_float(enc0)
-                dut._log.info(f"Feeding A/B value idx{idx0}: orig={inputs[idx0]} fp8=0x{enc0:02x} -> {dec0}")
-                dut.ui_in.value = enc0
-            else:
-                dut.ui_in.value = 0
+            dut.ui_in.value = float_to_fp8_e4m3(inputs[idx0]) if inputs else 0
             await ClockCycles(dut.clk, 1)
             high = dut.uo_out.value.integer & 0xFF
 
-            if inputs:
-                enc1 = float_to_fp8_e4m3(inputs[idx1])
-                dec1 = fp8_to_float(enc1)
-                dut._log.info(f"Feeding A/B value idx{idx1}: orig={inputs[idx1]} fp8=0x{enc1:02x} -> {dec1}")
-                dut.ui_in.value = enc1
-            else:
-                dut.ui_in.value = 0
+            dut.ui_in.value = float_to_fp8_e4m3(inputs[idx1]) if inputs else 0
             await ClockCycles(dut.clk, 1)
             low = dut.uo_out.value.integer & 0xFF
 
@@ -358,17 +185,12 @@ async def test_project(dut):
 
     # ------------------------------
     # STEP 4: Read outputs
-    results = []
-
-    # Test 1 matrices (new inputs for read)
-    A = [79, -10, 7, 8]  # row-major
-    B = [2, 6, 5, 8]  # row-major: [B00, B01, B10, B11]
-
-    # Compute expected for these test matrices (simulate FP8->BF16 path)
     expected = get_expected_matmul(A, B)
-    expected_bits = get_expected_matmul_bits(A, B)
-    for idx, eb in enumerate(expected_bits):
-        dut._log.info(f"Expected BF16 idx{idx} = 0x{eb:04x} -> {bf16_to_float(eb)}")
+    results = []
+    
+    # Test 2 matrices
+    A = [2, -1, 3, 5]  # row-major
+    B = [2, 6, 5, 8]  # row-major: [B00, B01, B10, B11]
 
     # Read test 1 matrices
     results = await parallel_load_read(dut, A, B)

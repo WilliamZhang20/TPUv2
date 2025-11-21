@@ -1,6 +1,4 @@
-module PE #(
-    parameter WIDTH = 24      // efficient accumulator size
-)(
+module PE (
     input  wire         clk,
     input  wire         rst,
     input  wire         clear,
