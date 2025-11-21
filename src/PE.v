@@ -75,37 +75,49 @@ module PE #(
         reg signa, signb, signr;
         reg [7:0] expa, expb, expr, ediff;
         reg [9:0] ma, mb, ms;
-        begin
-            signa = a[15]; expa = a[14:7]; ma = (expa==0)? 0 : {1'b1,a[6:0],1'b0};
-            signb = b[15]; expb = b[14:7]; mb = (expb==0)? 0 : {1'b1,b[6:0],1'b0};
-
-            if (expa > expb) begin
-                ediff = expa - expb; expr = expa;
-                mb = mb >> ediff;
-            end else begin
-                ediff = expb - expa; expr = expb;
-                ma = ma >> ediff;
-            end
-
-            if (signa == signb) begin
-                ms = ma + mb;
-                signr = signa;
-            end else if (ma >= mb) begin
-                ms = ma - mb;
-                signr = signa;
-            end else begin
-                ms = mb - ma;
-                signr = signb;
-            end
-
-            if (ms[9]) begin
-                bf16_add = {signr, expr+1, ms[9:3]};
-            end else if (ms[8]) begin
-                bf16_add = {signr, expr, ms[8:2]};
-            end else begin
-                bf16_add = 16'h0000;
-            end
+    begin
+        // unpack
+        signa = a[15];
+        expa  = a[14:7];
+        ma    = (expa == 8'd0) ? 10'd0 : {1'b1, a[6:0], 1'b0};
+    
+        signb = b[15];
+        expb  = b[14:7];
+        mb    = (expb == 8'd0) ? 10'd0 : {1'b1, b[6:0], 1'b0};
+    
+        // exponent align
+        if (expa > expb) begin
+            ediff = expa - expb;
+            expr  = expa;
+            mb    = mb >> ediff;
+        end else begin
+            ediff = expb - expa;
+            expr  = expb;
+            ma    = ma >> ediff;
         end
+    
+        // add/sub mantissa
+        if (signa == signb) begin
+            ms    = ma + mb;
+            signr = signa;
+        end else if (ma >= mb) begin
+            ms    = ma - mb;
+            signr = signa;
+        end else begin
+            ms    = mb - ma;
+            signr = signb;
+        end
+    
+        // normalize result
+        if (ms[9]) begin
+            // carry-out → shift right, add 1 to exponent
+            bf16_add = {signr, expr + 8'd1, ms[9:3]};
+        end else if (ms[8]) begin
+            bf16_add = {signr, expr, ms[8:2]};
+        end else begin
+            bf16_add = 16'h0000;
+        end
+    end
     endfunction
 
     // ================================================================
@@ -124,3 +136,4 @@ module PE #(
     end
 
 endmodule
+
