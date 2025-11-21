@@ -1,5 +1,5 @@
 module PE #(
-    parameter ACC_WIDTH = 24      // efficient accumulator size
+    parameter WIDTH = 24      // efficient accumulator size
 )(
     input  wire         clk,
     input  wire         rst,
@@ -103,3 +103,4 @@ module PE #(
     end
 
 endmodule
+
