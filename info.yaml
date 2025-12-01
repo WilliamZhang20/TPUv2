@@ -22,8 +22,6 @@ project:
     - "PE.v"
     - "memory.v"
     - "control_unit.v"
-    - "fp_add.v"
-    - "fp_multiply.v"
     - "normalize_fp.v"
     - "decode_fp8.v"
 

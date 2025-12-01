@@ -25,7 +25,7 @@ module PE (
     mxfp8_e4m3_decoder dec_a(a_in, sign_a, exp_a, mant_a);
     mxfp8_e4m3_decoder dec_b(b_in, sign_b, exp_b, mant_b);
 
-    // Stage 1 pipeline regs
+    // Stage 1 pipeline registers
     reg sign_a_s1, sign_b_s1;
     reg [3:0] exp_a_s1, exp_b_s1;
     reg [3:0] mant_a_s1, mant_b_s1;
@@ -45,69 +45,42 @@ module PE (
         end
     end
 
-    // ============================================================
-    // Stage 2: Multiply + Exponent Combine
-    // ============================================================
+    // -----------------------
+    // Stage 2: Multiply + Align (combined)
+    // -----------------------
     wire prod_sign_s2;
-    wire [7:0] shift_s2;
-    wire [7:0] mant_prod_s2;
+    wire [17:0] aligned_prod_s2; // reduced width accumulator target
+    assign prod_sign_s2 = sign_a_s1 ^ sign_b_s1;
 
-    mxfp8_mul_int mul (
-        .sign_a(sign_a_s1), .sign_b(sign_b_s1),
-        .mant_a(mant_a_s1), .mant_b(mant_b_s1),
-        .exp_a(exp_a_s1),   .exp_b(exp_b_s1),
-        .prod_sign(prod_sign_s2),
-        .shift_amount(shift_s2),
-        .mant_prod(mant_prod_s2)
-    );
+    // Combined multiply + align
+    wire [7:0] mant_prod_s2 = mant_a_s1 * mant_b_s1;
+    localparam int FP8_BIAS = 7;
+    localparam int INT_ACC_OFFSET = 18; // reduce width from 20 -> 18
+    wire [7:0] shift_amount_s2 = exp_a_s1 + exp_b_s1 - FP8_BIAS + INT_ACC_OFFSET;
 
-    // Aligner
-    wire [19:0] aligned_prod_s2;
-    mx_int_aligner aligner (
-        .mant_prod(mant_prod_s2),
-        .shift_amount(shift_s2),
-        .aligned_val(aligned_prod_s2)
-    );
+    assign aligned_prod_s2 = mant_prod_s2 << shift_amount_s2;
 
-    // Stage 2 pipeline registers (acc input)
-    reg prod_sign_s3;
-    reg [19:0] aligned_s3;
+    // -----------------------
+    // Stage 3: Accumulate INT18
+    // -----------------------
+    reg signed [17:0] acc_s3;
 
     always @(posedge clk) begin
-        if (rst) begin
-            prod_sign_s3 <= 0;
-            aligned_s3   <= 0;
-        end else begin
-            prod_sign_s3 <= prod_sign_s2;
-            aligned_s3   <= aligned_prod_s2;
-        end
+        if (rst || clear) acc_s3 <= 0;
+        else acc_s3 <= prod_sign_s2 ? acc_s3 - aligned_prod_s2 : acc_s3 + aligned_prod_s2;
     end
 
-    // ============================================================
-    // Stage 3: Accumulate INT20
-    // ============================================================
-    wire signed [19:0] acc_val;
-
-    mx_int_acc accumulator (
-        .clk(clk), .rst(rst), .clear(clear),
-        .aligned_val(aligned_s3),
-        .prod_sign(prod_sign_s3),
-        .acc(acc_val)
-    );
-
-    // ============================================================
-    // Stage 4: Convert INT → BF16
-    // ============================================================
+    // -----------------------
+    // Stage 4: INT → BF16 (optimized LZD)
+    // -----------------------
     wire [15:0] c_val;
-
-    int20_to_bf16 convert_bf16 (
-        .acc(acc_val),
+    int18_to_bf16_lzd convert_bf16 (
+        .acc(acc_s3),
         .bf16(c_val)
     );
 
-    // register output
     always @(posedge clk) begin
-        if (rst) c_out <= 0;
+        if (rst) c_out <= 16'h0;
         else     c_out <= c_val;
     end
 
