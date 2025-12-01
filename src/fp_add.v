@@ -1,88 +1,65 @@
-module bf16_adder (
-    input  logic [15:0] a,
-    input  logic [15:0] b,
-    output logic [15:0] sum
+module bf16_adder_simple (
+    input  wire [15:0] a,
+    input  wire [15:0] b,
+    output reg  [15:0] sum
 );
-
-    logic a_sign, b_sign;
-    logic [7:0] a_exp, b_exp;
-    logic [6:0] a_frac, b_frac;
-
-    // internal signals moved out
-    logic swap;
-    logic [7:0] big_exp, small_exp;
-    logic [6:0] big_frac, small_frac;
-    logic [8:0] exp_diff;
-    logic [9:0] big_mant;
-    logic [9:0] small_mant_aligned;
-    logic [10:0] sum_mant;
-    logic sum_sign;
+    wire a_sign = a[15];
+    wire b_sign = b[15];
+    wire [7:0] a_exp = a[14:7];
+    wire [7:0] b_exp = b[14:7];
+    wire [6:0] a_frac = a[6:0];
+    wire [6:0] b_frac = b[6:0];
 
     always @(*) begin
-        // unpack
-        a_sign = a[15];
-        b_sign = b[15];
-        a_exp  = a[14:7];
-        b_exp  = b[14:7];
-        a_frac = a[6:0];
-        b_frac = b[6:0];
-    end
-
-    always @(*) begin
-        // defaults
-        sum = a;
-        swap = 0;
-        big_exp = 0; small_exp = 0;
-        big_frac = 0; small_frac = 0;
-        exp_diff = 0;
-        big_mant = 0;
-        small_mant_aligned = 0;
-        sum_mant = 0;
-        sum_sign = 0;
-
-        // special cases
         if (a_exp == 8'hFF) begin
             sum = a;
-
-        end else if (b_exp == 8'hFF) begin
+        end
+        else if (b_exp == 8'hFF) begin
             sum = b;
-
-        end else if (a_exp == 0 && a_frac == 0) begin
+        end
+        else if (a_exp == 0 && a_frac == 0) begin
             sum = b;
-
-        end else if (b_exp == 0 && b_frac == 0) begin
+        end
+        else if (b_exp == 0 && b_frac == 0) begin
             sum = a;
+        end
+        else begin
+            wire swap = (a_exp < b_exp) ||
+                        ((a_exp == b_exp) && (a_frac < b_frac));
 
-        end else begin
-            // normal add
-            swap       = (a_exp < b_exp) || ((a_exp == b_exp) && (a_frac < b_frac));
-            big_exp    = swap ? b_exp  : a_exp;
-            small_exp  = swap ? a_exp  : b_exp;
-            big_frac   = swap ? b_frac : a_frac;
-            small_frac = swap ? a_frac : b_frac;
+            wire [7:0] big_exp   = swap ? b_exp : a_exp;
+            wire [7:0] small_exp = swap ? a_exp : b_exp;
+            wire [6:0] big_frac  = swap ? b_frac : a_frac;
+            wire [6:0] small_frac = swap ? a_frac : b_frac;
+            wire big_sign = swap ? b_sign : a_sign;
+            wire small_sign = swap ? a_sign : b_sign;
 
-            exp_diff = big_exp - small_exp;
-            big_mant = {1'b1, big_frac};
+            wire [7:0] exp_diff = big_exp - small_exp;
+            wire [9:0] big_mant   = {1'b1, big_frac, 2'b00};
+            wire [9:0] small_mant_aligned =
+                (exp_diff >= 10) ? 10'b0 :
+                ({1'b1, small_frac, 2'b00} >> exp_diff);
 
-            if (exp_diff >= 10)
-                small_mant_aligned = 0;
-            else
-                small_mant_aligned = {1'b1, small_frac, 2'b00} >> exp_diff;
+            wire [10:0] result_mant;
+            wire        result_sign;
 
-            if (a_sign == b_sign) begin
-                sum_mant = {1'b0, big_mant} + small_mant_aligned;
-                sum_sign = a_sign;
-            end else begin
-                sum_mant = {1'b0, big_mant} - small_mant_aligned;
-                sum_sign = swap ? b_sign : a_sign;
+            if (big_sign == small_sign) begin
+                assign result_mant = {1'b0, big_mant} + small_mant_aligned;
+                assign result_sign = big_sign;
+            end
+            else begin
+                assign result_mant = {1'b0, big_mant} - small_mant_aligned;
+                assign result_sign = big_sign;
             end
 
-            if (sum_mant[10]) begin
-                sum = {sum_sign, big_exp + 1'd1, sum_mant[9:3]};
-            end else if (sum_mant[9:0] == 0) begin
+            if (result_mant == 0) begin
                 sum = 16'h0000;
-            end else begin
-                sum = {sum_sign, big_exp, sum_mant[9:3]};
+            end
+            else if (result_mant[10]) begin
+                sum = {result_sign, big_exp + 8'd1, result_mant[9:3]};
+            end
+            else begin
+                sum = {result_sign, big_exp, result_mant[9:3]};
             end
         end
     end
