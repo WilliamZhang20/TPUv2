@@ -20,19 +20,19 @@ module tt_um_tpu (
     wire transpose = uio_in[1];
     wire activation = uio_in[2];
 
-    wire mmu_en; // internal signal
-    reg clear; // reset of PEs only
     wire [2:0] mem_addr; // 3-bit address for matrix and element selection
-    
-    wire [2:0] mmu_cycle; // compute/output cycle count - 3 bit
 
     wire [7:0] weight0, weight1, weight2, weight3;
     wire [7:0] input0, input1, input2, input3;
 
     wire [15:0] outputs [0:3]; // raw accumulations (16-bit)
     wire [7:0] out_data; // sent to CPU
-    // Ports of the systolic Array
-    wire [7:0] a_data0, b_data0, a_data1, b_data1;
+
+    // Control signals
+    wire clear;
+    wire data_valid;
+    wire [1:0] a0_sel, a1_sel, b0_sel, b1_sel;
+    wire transpose_ctrl;
 
     wire done;
 
@@ -47,13 +47,19 @@ module tt_um_tpu (
         .input0(input0), .input1(input1), .input2(input2), .input3(input3)
     );
 
-    control_unit central_ctrl (
+    control_unit control (
         .clk(clk),
         .rst(~rst_n),
         .load_en(load_en),
+        .transpose(transpose),
+        .c00(outputs[0]), .c01(outputs[1]), .c10(outputs[2]), .c11(outputs[3]),
         .mem_addr(mem_addr),
-        .mmu_en(mmu_en),
-        .mmu_cycle(mmu_cycle)
+        .clear(clear),
+        .data_valid(data_valid),
+        .a0_sel(a0_sel), .a1_sel(a1_sel), .b0_sel(b0_sel), .b1_sel(b1_sel),
+        .transpose_out(transpose_ctrl),
+        .done(done),
+        .host_outdata(out_data)
     );
 
     systolic_array_2x2 mmu (
@@ -61,35 +67,18 @@ module tt_um_tpu (
         .rst(~rst_n),
         .clear(clear),
         .activation(activation),
-        .a_data0(a_data0),
-        .a_data1(a_data1),
-        .b_data0(b_data0),
-        .b_data1(b_data1),
+        .weight0(weight0), .weight1(weight1), .weight2(weight2), .weight3(weight3),
+        .input0(input0), .input1(input1), .input2(input2), .input3(input3),
+        .data_valid(data_valid),
+        .a0_sel(a0_sel),
+        .a1_sel(a1_sel),
+        .b0_sel(b0_sel),
+        .b1_sel(b1_sel),
+        .transpose(transpose_ctrl),
         .c00(outputs[0]), 
         .c01(outputs[1]), 
         .c10(outputs[2]), 
         .c11(outputs[3])
-    );
-
-    mmu_feeder compute_ctrl (
-        .clk(clk),
-        .rst(~rst_n),
-        .en(mmu_en),
-        .mmu_cycle(mmu_cycle),
-        .transpose(transpose),
-        .weight0(weight0), .weight1(weight1), .weight2(weight2), .weight3(weight3),
-        .input0(input0), .input1(input1), .input2(input2), .input3(input3),
-        .c00(outputs[0]), 
-        .c01(outputs[1]), 
-        .c10(outputs[2]), 
-        .c11(outputs[3]),
-        .clear(clear),
-        .a_data0(a_data0),
-        .a_data1(a_data1),
-        .b_data0(b_data0),
-        .b_data1(b_data1),
-        .done(done),
-        .host_outdata(out_data)
     );
 
     assign uo_out = out_data;

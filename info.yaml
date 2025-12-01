@@ -22,7 +22,6 @@ project:
     - "PE.v"
     - "memory.v"
     - "control_unit.v"
-    - "mmu_feeder.v"
     - "fp_add.v"
     - "fp_multiply.v"
     - "normalize_fp.v"
