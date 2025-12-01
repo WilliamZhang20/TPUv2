@@ -4,8 +4,8 @@ module PE (
     input  wire        clear,
     input  wire [7:0]  a_in,
     input  wire [7:0]  b_in,
-    output wire [7:0]  a_out,
-    output wire [7:0]  b_out,
+    output reg [7:0]  a_out,
+    output reg [7:0]  b_out,
     output reg  [15:0] c_out
 );
 
