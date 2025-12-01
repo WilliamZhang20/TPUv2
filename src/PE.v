@@ -4,6 +4,8 @@ module PE (
     input  wire        clear,
     input  wire [7:0]  a_in,
     input  wire [7:0]  b_in,
+    output wire [7:0]  a_out,
+    output wire [7:0]  b_out,
     output reg  [15:0] c_out
 );
 
@@ -88,6 +90,9 @@ module PE (
     // PIPELINE REGISTERS
     // ================================================================
     always @(posedge clk) begin
+        a_out <= a_in;
+        b_out <= b_in;
+
         if (rst) begin
             // Stage 1 registers
             a_sign_s1 <= 0;  a_exp_s1 <= 0;  a_mant_s1 <= 0;
