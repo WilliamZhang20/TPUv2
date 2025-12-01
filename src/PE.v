@@ -1,136 +1,127 @@
 module PE (
-    input  wire                    clk,
-    input  wire                    rst,
-    input  wire                    clear,
-
-    input  wire [7:0]              a_in,   // FP8 E4M3
-    input  wire [7:0]              b_in,   // FP8 E4M3
-
-    output reg  [7:0]              a_out,
-    output reg  [7:0]              b_out,
-    output reg  [15:0]             c_out   // BF16 accumulator
+    input  wire        clk,
+    input  wire        rst,
+    input  wire        clear,
+    input  wire [7:0]  a_in,
+    input  wire [7:0]  b_in,
+    output reg  [15:0] c_out
 );
 
-    // ================================================================
-    // 1. FP8 Decode → Integer mant, exp, sign
-    // ================================================================
-    wire sign_a = a_in[7];
-    wire sign_b = b_in[7];
-    wire sign_p = sign_a ^ sign_b;
+    // ----------------------------
+    // Stage 1 decode outputs (wires)
+    // ----------------------------
+    wire       a_sign_dec, b_sign_dec;
+    wire [7:0] a_exp_dec,  b_exp_dec;
+    wire [7:0] a_mant_dec, b_mant_dec;
 
-    wire [3:0] exp_a  = a_in[6:3];
-    wire [3:0] exp_b  = b_in[6:3];
-
-    wire [3:0] mant_a = (exp_a == 0) ? 0 : {1'b1, a_in[2:0]}; // 8..15
-    wire [3:0] mant_b = (exp_b == 0) ? 0 : {1'b1, b_in[2:0]};
-
-    // 4×4 → 8-bit multiply
-    wire [7:0] mant_prod_raw = mant_a * mant_b;
-
-    // FP8 bias = 7
-    wire [9:0] exp_sum_raw = exp_a + exp_b - 7;
-
-    wire prod_zero = (mant_prod_raw == 0) | (exp_a == 0) | (exp_b == 0);
-
-    // ================================================================
-    // 2. Normalize INT mantissa product → BF16 format
-    //       mant_prod_raw is 8–225
-    //       => represent as 1.xxxxx BF16 mantissa (7 bits)
-    // ================================================================
-    reg  [7:0] mant_norm;
-    reg  [7:0] exp_norm;
-
-    always @(*) begin
-        if (prod_zero) begin
-            mant_norm = 0;
-            exp_norm  = 0;
-        end
-        else if (mant_prod_raw[7]) begin
-            // 1xx.xxxxx range → shift down 1 bit
-            // mantissa: top 7 bits
-            mant_norm = mant_prod_raw[7:1]; 
-            exp_norm  = exp_sum_raw + 127 + 1;
-        end 
-        else begin
-            // 0xx.xxxxx range → already normalized
-            mant_norm = mant_prod_raw[6:0];
-            exp_norm  = exp_sum_raw + 127;
-        end
-    end
-
-    // ================================================================
-    // 3. Reconstruct BF16 product
-    // ================================================================
-    wire [15:0] bf16_prod = {sign_p, exp_norm, mant_norm};
-
-    // ================================================================
-    // 4. BF16 adder (your original one)
-    // ================================================================
-    function automatic [15:0] bf16_add(
-        input [15:0] a,
-        input [15:0] b
+    fp8_to_bf16_decoder #(.FTZ_FP8(1)) dec_a (
+        .fp8(a_in),
+        .sign(a_sign_dec),
+        .exp_out(a_exp_dec),
+        .mant_hidden_out(a_mant_dec)
     );
-        reg signa, signb, signr;
-        reg [7:0] expa, expb, expr, ediff;
-        reg [9:0] ma, mb, ms;
-    begin
-        // unpack
-        signa = a[15];
-        expa  = a[14:7];
-        ma    = (expa == 8'd0) ? 10'd0 : {1'b1, a[6:0], 1'b0};
-    
-        signb = b[15];
-        expb  = b[14:7];
-        mb    = (expb == 8'd0) ? 10'd0 : {1'b1, b[6:0], 1'b0};
-    
-        // exponent align
-        if (expa > expb) begin
-            ediff = expa - expb;
-            expr  = expa;
-            mb    = mb >> ediff;
-        end else begin
-            ediff = expb - expa;
-            expr  = expb;
-            ma    = ma >> ediff;
-        end
-    
-        // add/sub mantissa
-        if (signa == signb) begin
-            ms    = ma + mb;
-            signr = signa;
-        end else if (ma >= mb) begin
-            ms    = ma - mb;
-            signr = signa;
-        end else begin
-            ms    = mb - ma;
-            signr = signb;
-        end
-    
-        // normalize result
-        if (ms[9]) begin
-            // carry-out → shift right, add 1 to exponent
-            bf16_add = {signr, expr + 8'd1, ms[9:3]};
-        end else if (ms[8]) begin
-            bf16_add = {signr, expr, ms[8:2]};
-        end else begin
-            bf16_add = 16'h0000;
-        end
-    end
-    endfunction
+
+    fp8_to_bf16_decoder #(.FTZ_FP8(1)) dec_b (
+        .fp8(b_in),
+        .sign(b_sign_dec),
+        .exp_out(b_exp_dec),
+        .mant_hidden_out(b_mant_dec)
+    );
+
+    // ----------------------------
+    // Stage 1 → Stage 2 pipeline registers
+    // ----------------------------
+    reg        a_sign_s1, b_sign_s1;
+    reg [7:0]  a_exp_s1,  b_exp_s1;
+    reg [7:0]  a_mant_s1, b_mant_s1;
+
+    // ----------------------------
+    // Stage 2 multiply outputs
+    // ----------------------------
+    wire        prod_sign_mul;
+    wire [8:0]  prod_exp_mul;
+    wire [15:0] prod_mant_mul;
+
+    bf16_multiplier mul (
+        .signA(a_sign_s1),
+        .signB(b_sign_s1),
+        .expA(a_exp_s1),
+        .expB(b_exp_s1),
+        .mantA(a_mant_s1),
+        .mantB(b_mant_s1),
+        .prod_sign(prod_sign_mul),
+        .prod_exp(prod_exp_mul),
+        .prod_mant(prod_mant_mul)
+    );
+
+    // ----------------------------
+    // Stage 2 → Stage 3 pipeline registers
+    // ----------------------------
+    reg        prod_sign_s2;
+    reg [8:0]  prod_exp_s2;
+    reg [15:0] prod_mant_s2;
+
+    // ----------------------------
+    // Stage 3 normalization
+    // ----------------------------
+    wire [15:0] prod_bf16;
+
+    bf16_normalizer norm (
+        .sign(prod_sign_s2),
+        .exp_in(prod_exp_s2),
+        .mant_raw(prod_mant_s2),
+        .bf16_result(prod_bf16)
+    );
+
+    // ----------------------------
+    // Adder input and output
+    // ----------------------------
+    wire [15:0] acc_next;
+
+    bf16_adder adder (
+        .a(c_out),
+        .b(prod_bf16),
+        .sum(acc_next)
+    );
 
     // ================================================================
-    // 5. Pipeline + BF16 accumulation (unchanged)
+    // PIPELINE REGISTERS
     // ================================================================
     always @(posedge clk) begin
-        a_out <= a_in;
-        b_out <= b_in;
+        if (rst) begin
+            // Stage 1 registers
+            a_sign_s1 <= 0;  a_exp_s1 <= 0;  a_mant_s1 <= 0;
+            b_sign_s1 <= 0;  b_exp_s1 <= 0;  b_mant_s1 <= 0;
 
-        if (rst)
+            // Stage 2 registers
+            prod_sign_s2 <= 0;
+            prod_exp_s2  <= 0;
+            prod_mant_s2 <= 0;
+
+            // Accumulator
             c_out <= 16'd0;
-        else if (clear)
-            c_out <= bf16_prod;
-        else
-            c_out <= bf16_add(c_out, bf16_prod);
+        end
+        else begin
+            // Stage 1 → Stage 2
+            a_sign_s1 <= a_sign_dec;
+            a_exp_s1  <= a_exp_dec;
+            a_mant_s1 <= a_mant_dec;
+
+            b_sign_s1 <= b_sign_dec;
+            b_exp_s1  <= b_exp_dec;
+            b_mant_s1 <= b_mant_dec;
+
+            // Stage 2 → Stage 3
+            prod_sign_s2 <= prod_sign_mul;
+            prod_exp_s2  <= prod_exp_mul;
+            prod_mant_s2 <= prod_mant_mul;
+
+            // Accumulator update
+            if (clear)
+                c_out <= 16'd0;
+            else
+                c_out <= acc_next;
+        end
     end
 
 endmodule

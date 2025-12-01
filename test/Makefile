@@ -3,11 +3,15 @@
 
 # defaults
 SIM ?= icarus
-FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
+
+TIMESTAMP = $(shell TZ=US/Eastern date +%Y%m%d_%H:%M:%S)
+WAVES_ROOT = $(PWD)
+COMPILE_ARGS += -DTIMESTAMP=\"$(TIMESTAMP)\"
+
 PROJECT_SOURCES = tpu.v \
- 				  	systolic_array_2x2.v \
+					systolic_array_2x2.v \
 					control_unit.v \
 					PE.v \
 					mmu_feeder.v \
@@ -39,12 +43,36 @@ endif
 # Allow sharing configuration between design and testbench via `include`:
 COMPILE_ARGS 		+= -I$(SRC_DIR)
 
-# Include the testbench sources:
-VERILOG_SOURCES += $(PWD)/tb.v
-TOPLEVEL = tb
+.PHONY: all test-mac test-top
 
-# List test modules to run, separated by commas and without the .py suffix:
-COCOTB_TEST_MODULE = test
+all:
+	$(MAKE) test-mac
+	$(MAKE) test-top
+
+test-mac:
+	$(MAKE) clean
+	$(MAKE) sim \
+		TOPLEVEL=tb \
+		MODULE=test_mac \
+		VERILOG_SOURCES="$(WAVES_ROOT)/mac/tb.v $(addprefix $(SRC_DIR)/,tpu.v systolic_array_2x2.v PE.v mmu_feeder.v control_unit.v memory.v)" \
+		PYTHONPATH=$(WAVES_ROOT)/mac \
+		WAVES_DIR=$(WAVES_ROOT)/mac/wave \
+		COMPILE_ARGS='$(COMPILE_ARGS) -DVCD_PATH="\"$(WAVES_ROOT)/mac/wave/mac_tb_$(TIMESTAMP).fst\""'
+
+test-top:
+	$(MAKE) clean
+	$(MAKE) sim \
+		TOPLEVEL=tb \
+		MODULE=test \
+		VERILOG_SOURCES="$(WAVES_ROOT)/tpu/tb.v $(addprefix $(SRC_DIR)/,tpu.v systolic_array_2x2.v PE.v mmu_feeder.v control_unit.v memory.v)" \
+		PYTHONPATH=$(WAVES_ROOT)/tpu \
+		WAVES_DIR=$(WAVES_ROOT)/tpu/wave \
+		COMPILE_ARGS='$(COMPILE_ARGS) -DVCD_PATH="\"$(WAVES_ROOT)/tpu/wave/tpu_tb_$(TIMESTAMP).fst\""'
+
+# Phony target for cleaning up
+.PHONY: clean
+clean::
+	rm -rf sim_build* results.xml
 
 # include cocotb's make rules to take care of the simulator setup
 include $(shell cocotb-config --makefiles)/Makefile.sim
