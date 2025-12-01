@@ -26,17 +26,9 @@ module tb ();
   wire [7:0] a_out;
   wire [7:0] b_out;
   wire [7:0] c_out;
-`ifdef GL_TEST
-  wire VPWR = 1'b1;
-  wire VGND = 1'b0;
-`endif
 
   // Replace tt_um_example with your module name:
   PE dut (
-`ifdef GL_TEST
-      .VPWR(VPWR),
-      .VGND(VGND),
-`endif
       .clk    (clk),      // clock
       .rst    (rst),    // reset
       .clear  (clear),
