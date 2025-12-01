@@ -20,8 +20,8 @@
   "CLOCK_PERIOD": 20,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
-  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.5,
-  "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.4,
+  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
+  "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
   "RUN_LINTER": 1,
@@ -31,7 +31,7 @@
   "//": "https://tinytapeout.com/faq/#how-can-i-map-an-additional-external-clock-to-one-of-the-gpios",
   "CLOCK_PORT": "clk",
 
-  "//": "Configuration docs: https://openlane.readthedocs.io/en/latest/reference/configuration.html",
+  "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
   "//": "!!! DO NOT CHANGE ANYTHING BELOW THIS POINT !!!",
@@ -63,9 +63,8 @@
   "//": "Clock",
   "RUN_CTS": 1,
 
-  "//": "Don't use power rings or met5 layer",
+  "//": "Don't generate power rings",
   "FP_PDN_MULTILAYER": 0,
-  "RT_MAX_LAYER": "met4",
 
   "//": "MAGIC_DEF_LABELS may cause issues with LVS",
   "MAGIC_DEF_LABELS": 0,
