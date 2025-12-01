@@ -44,6 +44,31 @@ endif
 # Allow sharing configuration between design and testbench via `include`:
 COMPILE_ARGS 		+= -I$(SRC_DIR)
 
+.PHONY: all test-top
+
+all:
+	$(MAKE) test-top
+
+test-mac:
+	$(MAKE) clean
+	$(MAKE) sim \
+		TOPLEVEL=tb \
+		MODULE=test_mac \
+		VERILOG_SOURCES="$(WAVES_ROOT)/mac/tb.v $(addprefix $(SRC_DIR)/,tpu.v systolic_array_2x2.v PE.v control_unit.v memory.v)" \
+		PYTHONPATH=$(WAVES_ROOT)/mac \
+		WAVES_DIR=$(WAVES_ROOT)/mac/wave \
+		COMPILE_ARGS='$(COMPILE_ARGS) -DVCD_PATH="\"$(WAVES_ROOT)/mac/wave/mac_tb_$(TIMESTAMP).fst\""'
+
+test-top:
+	$(MAKE) clean
+	$(MAKE) sim \
+		TOPLEVEL=tb \
+		MODULE=test \
+		VERILOG_SOURCES="$(WAVES_ROOT)/tpu/tb.v $(addprefix $(SRC_DIR)/,tpu.v systolic_array_2x2.v PE.v control_unit.v memory.v)" \
+		PYTHONPATH=$(WAVES_ROOT)/tpu \
+		WAVES_DIR=$(WAVES_ROOT)/tpu/wave \
+		COMPILE_ARGS='$(COMPILE_ARGS) -DVCD_PATH="\"$(WAVES_ROOT)/tpu/wave/tpu_tb_$(TIMESTAMP).fst\""'
+
 # Phony target for cleaning up
 .PHONY: clean
 clean::
