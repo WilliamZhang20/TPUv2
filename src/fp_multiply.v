@@ -42,31 +42,53 @@ module mx_to_bf16_converter #(
 
     output reg  [15:0] bf16_out
 );
+
+    // Local temps must be REGs for use inside always blocks
+    reg [7:0] mant_extended;
+    reg       round_bit;
+    reg [7:0] mant_rounded;
+
     always @(*) begin
+        
+        // Zero or underflow
         if (mant == 0 || exp[8]) begin
-            // Zero or underflow
             bf16_out = {sign, 15'b0};
         end
+        
+        // Overflow → Inf
         else if (exp >= 9'd255) begin
-            // Overflow to infinity
             bf16_out = {sign, 8'hFF, 7'b0};
         end
+        
         else begin
-            // Normal conversion and rounding
-            if (PROD_WIDTH >= 9) begin
-                wire [7:0] mant_extended = mant[PROD_WIDTH-2 -: 8];
-                wire round_bit = (PROD_WIDTH >= 10) ? mant[PROD_WIDTH-9] : 1'b0;
-                wire [7:0] mant_rounded = mant_extended + round_bit;
 
+            if (PROD_WIDTH >= 9) begin
+                // Equivalent to your earlier "wire = slice" statements
+                mant_extended = mant[PROD_WIDTH-2 -: 8];
+
+                if (PROD_WIDTH >= 10)
+                    round_bit = mant[PROD_WIDTH-9];
+                else
+                    round_bit = 1'b0;
+
+                mant_rounded = mant_extended + round_bit;
+
+                // Detect carry out of rounding
                 if (mant_rounded[7]) begin
                     bf16_out = {sign, exp[7:0] + 8'd1, 7'b0};
-                end else begin
+                end 
+                else begin
                     bf16_out = {sign, exp[7:0], mant_rounded[6:0]};
                 end
             end
+            
             else begin
-                bf16_out = {sign, exp[7:0], mant[PROD_WIDTH-2:0], 
-                            {(7-(PROD_WIDTH-1)){1'b0}}};
+                bf16_out = {
+                    sign,
+                    exp[7:0],
+                    mant[PROD_WIDTH-2:0], 
+                    {(7 - (PROD_WIDTH-1)){1'b0}}
+                };
             end
         end
     end
