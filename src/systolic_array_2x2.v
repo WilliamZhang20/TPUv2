@@ -22,7 +22,7 @@ module systolic_array_2x2 #(
     // Internal signals between PEs
     wire [WIDTH-1:0] a_wire [0:1][0:2];
     wire [WIDTH-1:0] b_wire [0:2][0:1];
-    wire [WIDTH*2-1:0] c_array [0:1][0:1];
+    wire [WIDTH*2-1:0] signed c_array [0:1][0:1];
 
     assign a_wire[0][0] = data_valid ? 
                      (a0_sel == 2'd0) ? weight0 :

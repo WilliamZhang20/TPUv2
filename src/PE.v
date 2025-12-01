@@ -56,9 +56,10 @@ module PE (
     wire [7:0] mant_prod_s2 = mant_a_s1 * mant_b_s1;
     localparam int FP8_BIAS = 7;
     localparam int INT_ACC_OFFSET = 18; // reduce width from 20 -> 18
-    wire [7:0] shift_amount_s2 = exp_a_s1 + exp_b_s1 - FP8_BIAS + INT_ACC_OFFSET;
+    wire [7:0] shift_amount_s2;
+    assign shift_amount_s2 = $unsigned({4'b0, exp_a_s1} + {4'b0, exp_b_s1} - FP8_BIAS + INT_ACC_OFFSET);
 
-    assign aligned_prod_s2 = mant_prod_s2 << shift_amount_s2;
+    assign aligned_prod_s2 = $unsigned(mant_prod_s2) << shift_amount_s2;
 
     // -----------------------
     // Stage 3: Accumulate INT18
