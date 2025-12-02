@@ -25,7 +25,7 @@ module tb ();
   reg [7:0] b_in;
   wire [7:0] a_out;
   wire [7:0] b_out;
-  wire [7:0] c_out;
+  wire [15:0] c_out;
 
   // Replace tt_um_example with your module name:
   PE dut (

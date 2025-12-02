@@ -43,10 +43,10 @@ endif
 # Allow sharing configuration between design and testbench via `include`:
 COMPILE_ARGS 		+= -I$(SRC_DIR)
 
-.PHONY: all test-mac
+.PHONY: all test-mac test-top
 
 all:
-	$(MAKE) test-mac
+	$(MAKE) test-mac test-top
 
 test-mac:
 	$(MAKE) clean
@@ -56,7 +56,7 @@ test-mac:
 		VERILOG_SOURCES="$(WAVES_ROOT)/mac/tb.v $(addprefix $(SRC_DIR)/,PE.v normalize_fp.v)" \
 		PYTHONPATH=$(WAVES_ROOT)/mac \
 		WAVES_DIR=$(WAVES_ROOT)/mac/wave \
-		COMPILE_ARGS='$(COMPILE_ARGS) -DVCD_PATH="\"$(WAVES_ROOT)/mac/wave/mac_tb_$(TIMESTAMP).fst\""'
+		COMPILE_ARGS='$(COMPILE_ARGS) -DVCD_PATH="\"$(WAVES_ROOT)/mac/wave/mac_tb_$(TIMESTAMP).vcd\""'
 
 test-top:
 	$(MAKE) clean
@@ -66,7 +66,7 @@ test-top:
 		VERILOG_SOURCES="$(WAVES_ROOT)/tpu/tb.v $(addprefix $(SRC_DIR)/,tpu.v systolic_array_2x2.v PE.v normalize_fp.v control_unit.v memory.v)" \
 		PYTHONPATH=$(WAVES_ROOT)/tpu \
 		WAVES_DIR=$(WAVES_ROOT)/tpu/wave \
-		COMPILE_ARGS='$(COMPILE_ARGS) -DVCD_PATH="\"$(WAVES_ROOT)/tpu/wave/tpu_tb_$(TIMESTAMP).fst\""'
+		COMPILE_ARGS='$(COMPILE_ARGS) -DVCD_PATH="\"$(WAVES_ROOT)/tpu/wave/tpu_tb_$(TIMESTAMP).vcd\""'
 
 # Phony target for cleaning up
 .PHONY: clean
