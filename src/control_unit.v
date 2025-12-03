@@ -39,7 +39,7 @@ module control_unit (
 
     // Done signal and clear signal
     assign done = data_valid && (mmu_cycle >= 3'b010);
-    assign clear = (mmu_cycle == 3'b001);
+    assign clear = (mmu_cycle == 3'b000);
 
     // Output counter for selecting c_out elements
     reg [2:0] output_count;
