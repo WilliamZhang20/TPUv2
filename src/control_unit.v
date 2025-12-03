@@ -41,8 +41,7 @@ module control_unit (
     assign done = data_valid && (mmu_cycle >= 3'b010);
     assign clear = (mmu_cycle == 3'b000);
 
-    // Output counter for selecting c_out elements
-    reg [2:0] output_count;
+    // Buffer of output after clearing previous
     reg [7:0] tail_hold;
 
     // Next state logic - very simple now!
@@ -73,7 +72,6 @@ module control_unit (
             mmu_cycle <= 0;
             data_valid <= 0;
             mem_addr <= 0;
-            output_count <= 0;
             tail_hold <= 8'b0;
             a0_sel <= 2'b0;
             a1_sel <= 2'b0;
@@ -90,7 +88,6 @@ module control_unit (
                     mem_addr <= 0;
                     mmu_cycle <= 0;
                     data_valid <= 0;
-                    output_count <= 0;
                     a0_sel <= 2'b0;
                     a1_sel <= 2'b0;
                     b0_sel <= 2'b0;
@@ -148,15 +145,8 @@ module control_unit (
                     endcase
 
                     // Output counter management
-                    if (data_valid) begin
-                        if (mmu_cycle == 1) begin // outputs begin at the second cycle
-                            output_count <= 0;
-                        end else if (mmu_cycle == 6) begin
-                            tail_hold <= c11[7:0];
-                            output_count <= output_count + 1;
-                        end else begin
-                            output_count <= output_count + 1;
-                        end
+                    if (data_valid && mmu_cycle == 6) begin
+                        tail_hold <= c11[7:0];
                     end
                 end
                 
@@ -173,7 +163,7 @@ module control_unit (
     always @(*) begin
         host_outdata = 8'b0;
         if (data_valid) begin
-            case (output_count)
+            case (mem_addr)
                 3'b000: host_outdata = c00[15:8];
                 3'b001: host_outdata = c00[7:0];
                 3'b010: host_outdata = c01[15:8];
