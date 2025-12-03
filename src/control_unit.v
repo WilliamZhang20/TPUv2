@@ -81,8 +81,6 @@ module control_unit (
         end else begin
             state <= next_state;
             transpose_out <= transpose;
-            $display("Time=%0t mmu_cycle=%d mem_addr=%d clear=%b c11=%h", 
-         $time, mmu_cycle, mem_addr, clear, c11);
             
             case (state)
                 S_IDLE: begin
