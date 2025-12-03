@@ -1,6 +1,6 @@
 /*
- * Merged Control and Feeder Unit
- * Combines state machine control with data output selection
+ * Monolithic Control Unit
+ * Contains state machine control with data output selection
  * Data routing is handled directly between memory and systolic array
  * Simplified to 2-state machine: IDLE and ACTIVE
  */
@@ -35,14 +35,13 @@ module control_unit (
     localparam S_ACTIVE = 1'b1;
 
     reg state, next_state;
-    reg [2:0] mmu_cycle;
+    reg [2:0] mmu_cycle; // Counting Systolic Array Stages
 
     // Done signal and clear signal
     assign done = data_valid && (mmu_cycle >= 3'b010);
     assign clear = (mmu_cycle == 3'b000);
 
-    // Output counter for selecting c_out elements
-    reg [2:0] output_count;
+    // Buffer of output after clearing previous
     reg [7:0] tail_hold;
 
     // Next state logic - very simple now!
@@ -73,7 +72,6 @@ module control_unit (
             mmu_cycle <= 0;
             data_valid <= 0;
             mem_addr <= 0;
-            output_count <= 0;
             tail_hold <= 8'b0;
             a0_sel <= 2'b0;
             a1_sel <= 2'b0;
@@ -83,14 +81,12 @@ module control_unit (
         end else begin
             state <= next_state;
             transpose_out <= transpose;
-            // $display("mmu_cycle: %d", mmu_cycle);
             
             case (state)
                 S_IDLE: begin
                     mem_addr <= 0;
                     mmu_cycle <= 0;
                     data_valid <= 0;
-                    output_count <= 0;
                     a0_sel <= 2'b0;
                     a1_sel <= 2'b0;
                     b0_sel <= 2'b0;
@@ -107,10 +103,12 @@ module control_unit (
                         mem_addr <= mem_addr + 1;
                     end
 
-                    // Enable data_valid once we've loaded enough data (mem_addr >= 5)
+                    // The signal data_valid triggers systolic array computation, overlapping load & compute
                     if (mem_addr == 3'b101) begin
                         data_valid <= 1;
-                    end else if (mem_addr >= 3'b110) begin
+                        mmu_cycle <= 0; // systolic cycling begins at 5th load
+                        tail_hold <= c11[7:0];
+                    end else begin
                         data_valid <= 1;
                         mmu_cycle <= mmu_cycle + 1;
                         if (mem_addr == 3'b111) begin 
@@ -138,25 +136,13 @@ module control_unit (
                             b0_sel <= 2'd2; // not used
                             b1_sel <= 2'd1; // input3
                         end
-                        default: begin
-                            a0_sel <= 2'd0;
-                            a1_sel <= 2'd0;
-                            b0_sel <= 2'd0;
-                            b1_sel <= 2'd0;
+                        default: begin // by default turn everything off, i.e. set systolic inputs to 0
+                            a0_sel <= 2'd2;
+                            a1_sel <= 2'd2;
+                            b0_sel <= 2'd2;
+                            b1_sel <= 2'd2;
                         end
                     endcase
-
-                    // Output counter management (only when data_valid)
-                    if (data_valid) begin
-                        if (mmu_cycle == 0) begin
-                            output_count <= 0; // reset output cycling 1 cycle after when MMU cycle resets
-                        end else if (mmu_cycle == 7) begin
-                            tail_hold <= c11[7:0];
-                            output_count <= output_count + 1;
-                        end else begin
-                            output_count <= output_count + 1;
-                        end
-                    end
                 end
                 
                 default: begin
@@ -172,7 +158,7 @@ module control_unit (
     always @(*) begin
         host_outdata = 8'b0;
         if (data_valid) begin
-            case (output_count)
+            case (mem_addr)
                 3'b000: host_outdata = c00[15:8];
                 3'b001: host_outdata = c00[7:0];
                 3'b010: host_outdata = c01[15:8];

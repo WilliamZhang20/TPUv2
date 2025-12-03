@@ -87,7 +87,6 @@ async def test_pe_deviation(dut):
         dut.a_in.value = fp8_a
         dut.b_in.value = fp8_b
         await RisingEdge(dut.clk)
-        await RisingEdge(dut.clk)
 
         bf16_raw = int(dut.c_out.value) & 0xFFFF
         got_float = bf16_to_float(bf16_raw)
