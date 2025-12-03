@@ -58,8 +58,7 @@ module PE (
 
     // Compute NEXT accumulator value (combinational)
     wire signed [17:0] acc_next =
-        clear ? $signed(prod_sign ? -$signed(aligned_prod) : aligned_prod) :
-        rst   ? 18'sd0 :
+        (rst || clear) ? 18'sd0 :
         prod_sign ? (acc - $signed(aligned_prod)) :
                     (acc + $signed(aligned_prod));
 
