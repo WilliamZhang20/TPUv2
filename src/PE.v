@@ -64,6 +64,8 @@ module PE (
 
     // Register accumulator (for next cycle)
     always @(posedge clk) begin
+        a_out <= a_in;
+        b_out <= b_in;
         acc <= acc_next;
     end
 
@@ -78,3 +80,4 @@ module PE (
 
 
 endmodule
+
