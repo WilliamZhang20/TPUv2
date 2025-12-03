@@ -1,5 +1,3 @@
-![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
-
 # Tensor Processing Unit Version 2
 
 Background:
