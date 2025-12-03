@@ -56,11 +56,15 @@ module PE (
     // ----------------------- Accumulator (2's complement) -----------------------
     reg signed [17:0] acc;
 
+    wire signed [17:0] prod_val =
+        prod_sign ? -$signed(aligned_prod) :
+                    +$signed(aligned_prod);
+
     // Compute NEXT accumulator value (combinational)
     wire signed [17:0] acc_next =
-        (rst || clear) ? 18'sd0 :
-        prod_sign ? (acc - $signed(aligned_prod)) :
-                    (acc + $signed(aligned_prod));
+        rst      ? 18'sd0 :            
+        clear    ? prod_val :           
+                    (acc + prod_val);
 
     // Register accumulator (for next cycle)
     always @(posedge clk) begin
@@ -80,4 +84,5 @@ module PE (
 
 
 endmodule
+
 
