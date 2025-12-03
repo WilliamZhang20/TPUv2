@@ -108,13 +108,12 @@ module control_unit (
                     if (mem_addr == 3'b101) begin
                         data_valid <= 1;
                         mmu_cycle <= 0; // systolic cycling begins at 5th load
-                    end else if (mem_addr >= 3'b110) begin
+                        tail_hold <= c11[7:0];
+                    end else begin
                         data_valid <= 1;
                         mmu_cycle <= mmu_cycle + 1;
                         if (mem_addr == 3'b111) begin 
                             mem_addr <= 0;
-                        end else if (mmu_cycle == 4) begin
-                            tail_hold <= c11[7:0];
                         end
                     end
                     
