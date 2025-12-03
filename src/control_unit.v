@@ -1,6 +1,6 @@
 /*
- * Merged Control and Feeder Unit
- * Combines state machine control with data output selection
+ * Monolithic Control Unit
+ * Contains state machine control with data output selection
  * Data routing is handled directly between memory and systolic array
  * Simplified to 2-state machine: IDLE and ACTIVE
  */
@@ -35,7 +35,7 @@ module control_unit (
     localparam S_ACTIVE = 1'b1;
 
     reg state, next_state;
-    reg [2:0] mmu_cycle;
+    reg [2:0] mmu_cycle; // Counting Systolic Array Stages
 
     // Done signal and clear signal
     assign done = data_valid && (mmu_cycle >= 3'b010);
@@ -108,9 +108,7 @@ module control_unit (
                     end
 
                     // Enable data_valid once we've loaded enough data (mem_addr >= 5)
-                    if (mem_addr == 3'b101) begin
-                        data_valid <= 1;
-                    end else if (mem_addr >= 3'b110) begin
+                    if (mem_addr >= 3'b101) begin
                         data_valid <= 1;
                         mmu_cycle <= mmu_cycle + 1;
                         if (mem_addr == 3'b111) begin 
