@@ -138,11 +138,11 @@ module control_unit (
                             b0_sel <= 2'd2; // not used
                             b1_sel <= 2'd1; // input3
                         end
-                        default: begin
-                            a0_sel <= 2'd0;
-                            a1_sel <= 2'd0;
-                            b0_sel <= 2'd0;
-                            b1_sel <= 2'd0;
+                        default: begin // by default turn everything off, i.e. set systolic inputs to 0
+                            a0_sel <= 2'd2;
+                            a1_sel <= 2'd2;
+                            b0_sel <= 2'd2;
+                            b1_sel <= 2'd2;
                         end
                     endcase
                 end
