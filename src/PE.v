@@ -9,12 +9,6 @@ module PE (
     output wire [15:0] c_out
 );
 
-    // Systolic pass-through
-    always @(posedge clk) begin
-        a_out <= a_in;
-        b_out <= b_in;
-    end
-
     // ----------------------- FP8 E4M3 decode -----------------------
     wire sign_a = a_in[7];
     wire sign_b = b_in[7];
@@ -62,6 +56,9 @@ module PE (
     // ----------------------- Accumulator (2's complement) -----------------------
     reg signed [17:0] acc;
     always @(posedge clk) begin
+        a_out <= a_in;
+        b_out <= b_in;
+        // $display("a_in %d, b_in %d, c_out %d", a_in, b_in, c_out);
         if (rst || clear)
             acc <= 18'sd0;
         else begin

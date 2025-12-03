@@ -19,6 +19,7 @@ module memory (
                 sram[i] <= 8'b0;
             end
         end else if (load_en) begin
+            // ("Loading %d", in_data);
             sram[addr] <= in_data;
         end
     end

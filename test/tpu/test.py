@@ -83,16 +83,17 @@ async def parallel_load_read(dut, A, B, transpose=0, relu=0):
             dut.ui_in.value = fp8_e4m3_encode(inputs[idx0]) if inputs else 0
             await ClockCycles(dut.clk, 1)
             high = dut.uo_out.value.integer
+            dut._log.info(f"Read high value = {high}")
 
             dut.ui_in.value = fp8_e4m3_encode(inputs[idx1]) if inputs else 0
             await ClockCycles(dut.clk, 1)
             low = dut.uo_out.value.integer
+            dut._log.info(f"Read low value = {low}")
 
             combined = (high << 8) | low
             float_val = bf16_to_float(combined)
 
             results.append(float_val)
-            dut._log.info(f"Read value = {combined}")
     return results
 
 @cocotb.test()

@@ -83,6 +83,7 @@ module control_unit (
         end else begin
             state <= next_state;
             transpose_out <= transpose;
+            // $display("mmu_cycle: %d", mmu_cycle);
             
             case (state)
                 S_IDLE: begin
@@ -107,20 +108,10 @@ module control_unit (
                     end
 
                     // Enable data_valid once we've loaded enough data (mem_addr >= 5)
-                    if (mem_addr >= 3'b101) begin
+                    if (mem_addr == 3'b101) begin
                         data_valid <= 1;
-                    end
-                    
-                    // Increment mmu_cycle once data_valid is high
-                    if (data_valid) begin
-                        mmu_cycle <= mmu_cycle + 1;
-                        if (mmu_cycle == 3'b111) begin
-                            mmu_cycle <= 0;
-                        end else if (mmu_cycle == 1) begin
-                            mem_addr <= 0;
-                        end
                     end else if (mem_addr >= 3'b110) begin
-                        // Start incrementing mmu_cycle during initial load
+                        data_valid <= 1;
                         mmu_cycle <= mmu_cycle + 1;
                         if (mem_addr == 3'b111) begin 
                             mem_addr <= 0;
