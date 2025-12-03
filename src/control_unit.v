@@ -150,9 +150,10 @@ module control_unit (
                     if (data_valid) begin
                         if (mmu_cycle == 1) begin
                             output_count <= 0;
-                        end else if (mmu_cycle == 6) begin
+                        end else if (mmu_cycle == 7) begin
                             tail_hold <= c11[7:0];
                             output_count <= output_count + 1;
+                            mmu_cycle <= 0;
                         end else begin
                             output_count <= output_count + 1;
                         end
