@@ -56,7 +56,7 @@ module int18_to_bf16_lzd #(
 
                 // normalize so MSB ends up at bit 17
                 normalized = mag << (lz + 1);
-                mant = normalized[17:11] + (normalized[10] & (normalized[9:0] != 0 | normalized[11]));
+                mant = normalized[17:11];
 
                 bf16 = {sign, exp, mant};
             end
