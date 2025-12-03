@@ -131,9 +131,9 @@ module control_unit (
                     case (mmu_cycle)
                         3'd0: begin
                             a0_sel <= 2'd0; // weight0
-                            a1_sel <= 2'd0; // not used
+                            a1_sel <= 2'd2; // not used
                             b0_sel <= 2'd0; // input0
-                            b1_sel <= 2'd0; // not used
+                            b1_sel <= 2'd2; // not used
                         end
                         3'd1: begin
                             a0_sel <= 2'd1; // weight1
@@ -142,9 +142,9 @@ module control_unit (
                             b1_sel <= 2'd0; // input2/input1 (transpose)
                         end
                         3'd2: begin
-                            a0_sel <= 2'd0; // not used
+                            a0_sel <= 2'd2; // not used
                             a1_sel <= 2'd1; // weight3
-                            b0_sel <= 2'd0; // not used
+                            b0_sel <= 2'd2; // not used
                             b1_sel <= 2'd1; // input3
                         end
                         default: begin

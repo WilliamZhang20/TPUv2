@@ -104,9 +104,9 @@ async def test_project(dut):
     # Reset
     await reset_dut(dut)
 
-    A = [1.1, 2.0, 3.2, 4.2]
+    A = [1, 2, 3, 4]
 
-    B = [5.2, 6.9, 7.2, 8.2]
+    B = [5, 6, 7, 8]
 
     await load_matrix(dut, A)
     await load_matrix(dut, B)
