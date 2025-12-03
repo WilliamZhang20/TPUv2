@@ -110,6 +110,7 @@ module control_unit (
                     // Enable data_valid once we've loaded enough data (mem_addr >= 5)
                     if (mem_addr == 3'b101) begin
                         data_valid <= 1;
+                        mmu_cycle <= 0;
                     end else if (mem_addr >= 3'b110) begin
                         data_valid <= 1;
                         mmu_cycle <= mmu_cycle + 1;
@@ -153,7 +154,6 @@ module control_unit (
                         end else if (mmu_cycle == 7) begin
                             tail_hold <= c11[7:0];
                             output_count <= output_count + 1;
-                            mmu_cycle <= 0;
                         end else begin
                             output_count <= output_count + 1;
                         end
