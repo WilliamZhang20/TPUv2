@@ -148,8 +148,8 @@ module control_unit (
 
                     // Output counter management (only when data_valid)
                     if (data_valid) begin
-                        if (mmu_cycle == 1) begin
-                            output_count <= 0;
+                        if (mmu_cycle == 0) begin
+                            output_count <= 0; // reset output cycling 1 cycle after when MMU cycle resets
                         end else if (mmu_cycle == 7) begin
                             tail_hold <= c11[7:0];
                             output_count <= output_count + 1;
