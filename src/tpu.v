@@ -32,7 +32,6 @@ module tt_um_tpu (
     wire clear;
     wire data_valid;
     wire [1:0] a0_sel, a1_sel, b0_sel, b1_sel;
-    wire transpose_ctrl;
 
     wire done;
 
@@ -51,13 +50,11 @@ module tt_um_tpu (
         .clk(clk),
         .rst(~rst_n),
         .load_en(load_en),
-        .transpose(transpose),
         .c00(outputs[0]), .c01(outputs[1]), .c10(outputs[2]), .c11(outputs[3]),
         .mem_addr(mem_addr),
         .clear(clear),
         .data_valid(data_valid),
         .a0_sel(a0_sel), .a1_sel(a1_sel), .b0_sel(b0_sel), .b1_sel(b1_sel),
-        .transpose_out(transpose_ctrl),
         .done(done),
         .host_outdata(out_data)
     );
@@ -74,7 +71,7 @@ module tt_um_tpu (
         .a1_sel(a1_sel),
         .b0_sel(b0_sel),
         .b1_sel(b1_sel),
-        .transpose(transpose_ctrl),
+        .transpose(transpose),
         .c00(outputs[0]), 
         .c01(outputs[1]), 
         .c10(outputs[2]), 

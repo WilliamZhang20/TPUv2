@@ -11,7 +11,6 @@ module control_unit (
     input wire clk,
     input wire rst,
     input wire load_en,
-    input wire transpose,
 
     // Systolic array feedback for output selection
     input wire signed [15:0] c00, c01, c10, c11,
@@ -23,7 +22,6 @@ module control_unit (
     output wire clear,
     output reg data_valid,
     output reg [1:0] a0_sel, a1_sel, b0_sel, b1_sel,
-    output reg transpose_out,
 
     // Output interface
     output wire done,
@@ -77,10 +75,8 @@ module control_unit (
             a1_sel <= 2'b0;
             b0_sel <= 2'b0;
             b1_sel <= 2'b0;
-            transpose_out <= 0;
         end else begin
             state <= next_state;
-            transpose_out <= transpose;
             
             case (state)
                 S_IDLE: begin
