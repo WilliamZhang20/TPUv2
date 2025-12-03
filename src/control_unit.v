@@ -107,10 +107,10 @@ module control_unit (
                         mem_addr <= mem_addr + 1;
                     end
 
-                    // Enable data_valid once we've loaded enough data (mem_addr >= 5)
+                    // The signal data_valid triggers systolic array computation, overlapping load & compute
                     if (mem_addr == 3'b101) begin
                         data_valid <= 1;
-                        mmu_cycle <= 0;
+                        mmu_cycle <= 0; // systolic cycling begins at 5th load
                     end else if (mem_addr >= 3'b110) begin
                         data_valid <= 1;
                         mmu_cycle <= mmu_cycle + 1;
@@ -147,9 +147,9 @@ module control_unit (
                         end
                     endcase
 
-                    // Output counter management (only when data_valid)
+                    // Output counter management
                     if (data_valid) begin
-                        if (mmu_cycle == 1) begin
+                        if (mmu_cycle == 1) begin // outputs begin at the second cycle
                             output_count <= 0;
                         end else if (mmu_cycle == 7) begin
                             tail_hold <= c11[7:0];
