@@ -113,6 +113,8 @@ module control_unit (
                         mmu_cycle <= mmu_cycle + 1;
                         if (mem_addr == 3'b111) begin 
                             mem_addr <= 0;
+                        end else if (mmu_cycle == 4) begin
+                            tail_hold <= c11[7:0];
                         end
                     end
                     
@@ -143,11 +145,6 @@ module control_unit (
                             b1_sel <= 2'd0;
                         end
                     endcase
-
-                    // Output counter management
-                    if (data_valid && mmu_cycle == 6) begin
-                        tail_hold <= c11[7:0];
-                    end
                 end
                 
                 default: begin
