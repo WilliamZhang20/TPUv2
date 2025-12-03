@@ -55,27 +55,26 @@ module PE (
 
     // ----------------------- Accumulator (2's complement) -----------------------
     reg signed [17:0] acc;
+
+    // Compute NEXT accumulator value (combinational)
+    wire signed [17:0] acc_next =
+        (rst || clear) ? 18'sd0 :
+        prod_sign ? (acc - $signed(aligned_prod)) :
+                    (acc + $signed(aligned_prod));
+
+    // Register accumulator (for next cycle)
     always @(posedge clk) begin
-        a_out <= a_in;
-        b_out <= b_in;
-        // $display("a_in %d, b_in %d, c_out %d", a_in, b_in, c_out);
-        if (rst || clear)
-            acc <= 18'sd0;
-        else begin
-            if (prod_sign)
-                acc <= acc - $signed(aligned_prod);
-            else
-                acc <= acc + $signed(aligned_prod);
-        end
+        acc <= acc_next;
     end
 
     // ----------------------- INT18 → BF16 (combinational) -----------------------
     wire [15:0] bf16_c;
     int18_to_bf16_lzd #(.FRAC_BITS(FRAC_BITS)) convert (
-        .acc(acc), 
+        .acc(acc_next), 
         .bf16(bf16_c)
     );
 
     assign c_out = bf16_c;
+
 
 endmodule
