@@ -25,7 +25,7 @@ module control_unit (
 
     // Output interface
     output wire done,
-    output reg [7:0] host_outdata
+    output reg [7:0] data_out
 );
 
     // STATES - Simplified to just IDLE and ACTIVE
@@ -149,19 +149,19 @@ module control_unit (
         end
     end
 
-    // Combinational logic for host_outdata
+    // Combinational logic for data_out
     always @(*) begin
-        host_outdata = 8'b0;
+        data_out = 8'b0;
         if (data_valid) begin
             case (mem_addr)
-                3'b000: host_outdata = c00[15:8];
-                3'b001: host_outdata = c00[7:0];
-                3'b010: host_outdata = c01[15:8];
-                3'b011: host_outdata = c01[7:0];
-                3'b100: host_outdata = c10[15:8];
-                3'b101: host_outdata = c10[7:0];
-                3'b110: host_outdata = c11[15:8];
-                3'b111: host_outdata = tail_hold;
+                3'b000: data_out = c00[15:8];
+                3'b001: data_out = c00[7:0];
+                3'b010: data_out = c01[15:8];
+                3'b011: data_out = c01[7:0];
+                3'b100: data_out = c10[15:8];
+                3'b101: data_out = c10[7:0];
+                3'b110: data_out = c11[15:8];
+                3'b111: data_out = tail_hold;
             endcase
         end
     end

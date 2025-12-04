@@ -56,7 +56,7 @@ module tt_um_tpu (
         .data_valid(data_valid),
         .a0_sel(a0_sel), .a1_sel(a1_sel), .b0_sel(b0_sel), .b1_sel(b1_sel),
         .done(done),
-        .host_outdata(out_data)
+        .data_out(out_data)
     );
 
     systolic_array_2x2 mmu (
