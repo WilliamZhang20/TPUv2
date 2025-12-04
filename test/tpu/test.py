@@ -12,7 +12,7 @@ def bf16_to_float(bf16: int) -> float:
 
 def fp8_e4m3_encode(x: float) -> int:
     if math.isnan(x):
-        return 0x7F  # closest representation
+        return 0x7F
     if math.isinf(x):
         return 0x7F if x > 0 else 0xFF
 
@@ -25,18 +25,27 @@ def fp8_e4m3_encode(x: float) -> int:
         return sign << 7
 
     exp = math.floor(math.log2(x))
-    mant = x / (2 ** exp) - 1.0
-
-    # FP8 exponent bias = 7
+    
+    # FP8 E4M3 bias = 7, min normal exp = -6
     exp_fp8 = exp + 7
 
-    # Handle underflow/overflow
+    # Denormal handling
     if exp_fp8 <= 0:
-        return sign << 7
+        # Denormal: exp_fp8 = 0, effective exponent = -6
+        # Value = 2^(-6) * (0.mantissa)
+        # So: x = 2^(-6) * (mantissa_bits / 8)
+        # => mantissa_bits = x * 2^6 * 8 = x * 512
+        mant_fp8 = int(round(x * 512))
+        if mant_fp8 == 0 or mant_fp8 >= 8:
+            return sign << 7  # underflow to zero
+        return (sign << 7) | mant_fp8
+    
+    # Normal numbers
     if exp_fp8 >= 0xF:
-        return (sign << 7) | 0x7F  # max finite
+        return (sign << 7) | 0x7F  # overflow
 
-    mant_fp8 = int(round(mant * 8))  # 3 bits mantissa (2^3=8)
+    mant = x / (2 ** exp) - 1.0
+    mant_fp8 = int(round(mant * 8))
 
     if mant_fp8 == 8:  # rounding overflow
         mant_fp8 = 0
