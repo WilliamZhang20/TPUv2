@@ -22,8 +22,8 @@ module int18_to_bf16_lzd #(
             lzd = 5'd18;  // Default: all zeros
             for (i=17; i>=0; i=i-1) begin
                 if (x[i]==1'b1) begin
-                    lzd = 5'd17 - i;
-                    i = -1;  // Break
+                    lzd = 5'd17 - i[4:0];
+                    i = 0;  // Break
                 end
             end
         end
@@ -45,8 +45,8 @@ module int18_to_bf16_lzd #(
             lz = lzd(mag);
 
             // MSB position is (17 - lz), binary point at FRAC_BITS
-            exp_unbiased = (17 - lz) - FRAC_BITS;
-
+            exp_unbiased = 9'(17) - 9'(lz) - 9'(FRAC_BITS);
+            
             if (exp_unbiased + BF16_BIAS < 0) begin
                 bf16 = {sign, 15'd0}; // underflow
             end else if (exp_unbiased + BF16_BIAS > 255) begin
@@ -55,9 +55,8 @@ module int18_to_bf16_lzd #(
                 exp = exp_unbiased + BF16_BIAS;
 
                 // normalize so MSB ends up at bit 17
-                normalized = mag << (lz + 1);
-                mant = normalized[17:11];
-
+                normalized = mag << lz;
+                mant = normalized[16:10];
                 bf16 = {sign, exp, mant};
             end
         end
