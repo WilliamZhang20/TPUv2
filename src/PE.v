@@ -25,7 +25,6 @@ module PE (
     wire prod_sign = sign_a ^ sign_b;
     wire [7:0] mant_prod = mant_a * mant_b;   // 4×4 = 8-bit product
 
-    localparam signed BIAS = -7;
     localparam FRAC_BITS = 8;
     
     // Simplified exponent calculation (reuse adder)
