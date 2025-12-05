@@ -17,15 +17,32 @@ module int18_to_bf16_lzd #(
     // Leading zero detector
     function [4:0] lzd;
         input [17:0] x;
-        integer i;
+        reg [17:0] scan;
         begin
-            lzd = 5'd18;  // Default: all zeros
-            for (i=17; i>=0; i=i-1) begin
-                if (x[i]==1'b1) begin
-                    lzd = 5'd17 - i[4:0];
-                    i = 0;  // Break
-                end
-            end
+            // Priority encode from MSB to LSB
+            scan = x;
+            
+            casez (scan)
+                18'b1?????????????????: lzd = 5'd0;
+                18'b01????????????????: lzd = 5'd1;
+                18'b001???????????????: lzd = 5'd2;
+                18'b0001??????????????: lzd = 5'd3;
+                18'b00001?????????????: lzd = 5'd4;
+                18'b000001????????????: lzd = 5'd5;
+                18'b0000001???????????: lzd = 5'd6;
+                18'b00000001??????????: lzd = 5'd7;
+                18'b000000001?????????: lzd = 5'd8;
+                18'b0000000001????????: lzd = 5'd9;
+                18'b00000000001???????: lzd = 5'd10;
+                18'b000000000001??????: lzd = 5'd11;
+                18'b0000000000001?????: lzd = 5'd12;
+                18'b00000000000001????: lzd = 5'd13;
+                18'b000000000000001???: lzd = 5'd14;
+                18'b0000000000000001??: lzd = 5'd15;
+                18'b00000000000000001?: lzd = 5'd16;
+                18'b000000000000000001: lzd = 5'd17;
+                default:                lzd = 5'd18;  // All zeros
+            endcase
         end
     endfunction
 
