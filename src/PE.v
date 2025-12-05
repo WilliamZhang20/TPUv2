@@ -29,9 +29,10 @@ module PE (
     localparam FRAC_BITS = 8;
     
     // Simplified exponent calculation (reuse adder)
-    wire signed [5:0] exp_a_eff = denorm_a ? 6'sd1 : {2'b0, exp_a};
-    wire signed [5:0] exp_b_eff = denorm_b ? 6'sd1 : {2'b0, exp_b};
-    wire signed [6:0] exp_sum = exp_a_eff + exp_b_eff + BIAS + BIAS;  // Combined bias
+    wire signed [4:0] exp_a_add = denorm_a ? 5'sd1 : {1'b0, exp_a};
+    wire signed [4:0] exp_b_add = denorm_b ? 5'sd1 : {1'b0, exp_b};
+    wire signed [5:0] exp_add_only = exp_a_add + exp_b_add;
+    wire signed [6:0] exp_sum = {1'b0, exp_add_only} - 7'sd14;
     wire signed [6:0] shift_right = 7'sd6 - FRAC_BITS - exp_sum;
     
     // Simplified shifter with clamping
