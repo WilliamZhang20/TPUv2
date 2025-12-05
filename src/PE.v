@@ -14,63 +14,47 @@ module PE (
     wire sign_b = b_in[7];
     wire [3:0] exp_a = a_in[6:3];
     wire [3:0] exp_b = b_in[6:3];
-    wire denorm_a = (exp_a == 0);
-    wire denorm_b = (exp_b == 0);
+    wire denorm_a = ~|exp_a;
+    wire denorm_b = ~|exp_b;
 
-    wire [3:0] mant_a = denorm_a ? {1'b0, a_in[2:0]} : {1'b1, a_in[2:0]};
-    wire [3:0] mant_b = denorm_b ? {1'b0, b_in[2:0]} : {1'b1, b_in[2:0]};
+    // Combine mantissa selection into single operation
+    wire [3:0] mant_a = {~denorm_a, a_in[2:0]};
+    wire [3:0] mant_b = {~denorm_b, b_in[2:0]};
 
     // ----------------------- Multiply & align -----------------------
     wire prod_sign = sign_a ^ sign_b;
     wire [7:0] mant_prod = mant_a * mant_b;   // 4×4 = 8-bit product
 
-    localparam FP8_BIAS = 7;
-    localparam FRAC_BITS = 8;  // Q10.8 format: 1 sign + 9 int + 8 frac = 18 bits
+    localparam signed BIAS = -7;
+    localparam FRAC_BITS = 8;
     
-    // Compute unbiased exponent of product
-    // For denormals, use effective exponent of 1-bias = 1-7 = -6
-    wire signed [5:0] exp_prod = (denorm_a ? (-6) : ($signed({2'b0, exp_a}) - FP8_BIAS)) + 
-                                  (denorm_b ? (-6) : ($signed({2'b0, exp_b}) - FP8_BIAS));
+    // Simplified exponent calculation (reuse adder)
+    wire signed [5:0] exp_a_eff = denorm_a ? 6'sd1 : {2'b0, exp_a};
+    wire signed [5:0] exp_b_eff = denorm_b ? 6'sd1 : {2'b0, exp_b};
+    wire signed [6:0] exp_sum = exp_a_eff + exp_b_eff + BIAS + BIAS;  // Combined bias
+    wire signed [6:0] shift_right = 7'sd6 - FRAC_BITS - exp_sum;
     
-    // Product mantissa has 6 fractional bits (3+3)
-    // To align to FRAC_BITS position, we need to shift by (FRAC_BITS - 6) + exp_prod
-    // Negative shift_right means shift left
-    wire signed [5:0] shift_right = 6'd6 - FRAC_BITS - exp_prod;
-    
+    // Simplified shifter with clamping
     reg [17:0] aligned_prod;
-    
-    // Handle shift with saturation
     always @(*) begin
-        if (shift_right >= 18) begin
-            aligned_prod = 18'd0;  // Underflow
-        end else if (shift_right <= -10) begin
-            aligned_prod = 18'h3FFFF;  // Overflow (saturate to max)
-        end else if (shift_right >= 0) begin
-            aligned_prod = {10'd0, mant_prod} >> shift_right;
-        end else begin
-            // shift_right is negative, so negate it for left shift
-            aligned_prod = {10'd0, mant_prod} << (-shift_right);
-        end
+        if (shift_right[6])  // Negative = left shift
+            aligned_prod = (shift_right < -7'sd10) ? 18'h3FFFF : ({10'd0, mant_prod} << (-shift_right[3:0]));
+        else  // Positive = right shift
+            aligned_prod = (shift_right > 7'sd17) ? 18'd0 : ({10'd0, mant_prod} >> shift_right[4:0]);
     end
 
     // ----------------------- Accumulator (2's complement) -----------------------
     reg signed [17:0] acc;
 
     // Compute next accumulator value (combinational)
-    wire signed [17:0] acc_next =
-    prod_sign ? (acc - $signed(aligned_prod)) :
-                (acc + $signed(aligned_prod));
+    wire signed [17:0] abs_aligned = aligned_prod;
+    wire signed [17:0] acc_next = prod_sign ? (acc - abs_aligned) : (acc + abs_aligned);
 
     // Register accumulator
     always @(posedge clk) begin
         a_out <= a_in;
         b_out <= b_in;
-        
-        if (rst || clear) begin
-            acc <= 18'sd0;
-        end else begin
-            acc <= acc_next;
-        end
+        acc <= (rst | clear) ? 18'sd0 : acc_next;
     end
 
     // ----------------------- INT18 → BF16 (combinational) -----------------------
