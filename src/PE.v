@@ -48,19 +48,27 @@ module PE (
 
     // Compute next accumulator value (combinational)
     wire signed [17:0] abs_aligned = aligned_prod;
-    wire signed [17:0] acc_next = prod_sign ? (acc - abs_aligned) : (acc + abs_aligned);
+    wire signed [17:0] signed_prod =
+        prod_sign ? -aligned_prod : aligned_prod;
 
-    // Register accumulator
+    // Accumulator input: on clear, load product; else add to accumulator
+    wire signed [17:0] acc_in =
+        clear ? signed_prod : (acc + signed_prod);
+
     always @(posedge clk) begin
         a_out <= a_in;
         b_out <= b_in;
-        acc <= (rst | clear) ? 18'sd0 : acc_next;
+
+        if (rst)
+            acc <= 18'sd0;
+        else
+            acc <= acc_in;
     end
 
     // ----------------------- INT18 → BF16 (combinational) -----------------------
     wire [15:0] bf16_c;
     int18_to_bf16_lzd #(.FRAC_BITS(FRAC_BITS)) convert (
-        .acc(acc_next), 
+        .acc(acc_in), 
         .bf16(bf16_c)
     );
 
