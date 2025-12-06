@@ -95,7 +95,8 @@ async def test_pe_deviation(dut):
         
         dut.a_in.value = fp8_a
         dut.b_in.value = fp8_b
-        await RisingEdge(dut.clk)
+        await RisingEdge(dut.clk) # one cycle if output is assigned combinationally (testbench has reg input)
+        await RisingEdge(dut.clk) # two cycles if output is registered inside PE
 
         bf16_raw = int(dut.c_out.value) & 0xFFFF
         got_float = bf16_to_float(bf16_raw)

@@ -13,6 +13,7 @@ Results:
     - Simpler way - accumulate the FP8 product in an integer and then convert back to float. According to @cchan, this is also implemented in NVIDIA H100.
 - Optimized the datapath by merging the old project's `mmu_feeder` and `control_unit` into a single module `control_unit`.
 - Have come up with plans for adding a second instruction for elementwise multiplications! It takes the same number of I/O cycles and is also handy with a systolic array!
+- Currently all manufacturability checks (LVS, Antenna, DRC) have passed in the Tiny Tapeout design flow and no setup, or hold violations have been found.
 
 - [Read the documentation for project](docs/info.md)
 
