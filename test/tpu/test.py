@@ -83,12 +83,17 @@ async def load_matrix(dut, matrix, hadamard=0, transpose=0, relu=0):
         dut.uio_in.value = (hadamard << 3) | (transpose << 1) | (relu << 2) | 1
         await RisingEdge(dut.clk)
 
-async def parallel_load_read(dut, A, B, transpose=0, relu=0):
+async def parallel_load_read(dut, A, B, hadamard=0, transpose=0, relu=0):
     results = []
-    dut.uio_in.value = (transpose << 1) | (relu << 2) | 1
-
+    count = 0
+    
     for inputs in [A, B]:
         for i in range(2):
+            count += 1
+
+            if count == 4:
+                dut.uio_in.value = (hadamard << 3) | (transpose << 1) | (relu << 2) | 1
+            
             idx0 = i * 2
             idx1 = i * 2 + 1
             # Feed either real data or dummy zeros
@@ -96,7 +101,7 @@ async def parallel_load_read(dut, A, B, transpose=0, relu=0):
             await ClockCycles(dut.clk, 1)
             high = dut.uo_out.value.integer
             dut._log.info(f"Read high value = {high}")
-
+            
             dut.ui_in.value = fp8_e4m3_encode(inputs[idx1]) if inputs else 0
             await ClockCycles(dut.clk, 1)
             low = dut.uo_out.value.integer
@@ -129,7 +134,7 @@ async def test_hadamard(dut):
     results = []
 
     # Read test 1 matrices
-    results = await parallel_load_read(dut, [], [])
+    results = await parallel_load_read(dut, A, B)
 
     print(results)
     print(expected)
