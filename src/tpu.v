@@ -19,7 +19,6 @@ module tt_um_tpu (
     wire load_en = uio_in[0];
     wire transpose = uio_in[1];
     wire activation = uio_in[2];
-
     wire [2:0] mem_addr; // 3-bit address for matrix and element selection
 
     wire [7:0] weight0, weight1, weight2, weight3;
@@ -30,10 +29,7 @@ module tt_um_tpu (
 
     // Control signals
     wire clear;
-    wire data_valid;
     wire [1:0] a0_sel, a1_sel, b0_sel, b1_sel;
-
-    wire done;
 
     // Module Instantiations
     memory mem (
@@ -53,9 +49,7 @@ module tt_um_tpu (
         .c00(outputs[0]), .c01(outputs[1]), .c10(outputs[2]), .c11(outputs[3]),
         .mem_addr(mem_addr),
         .clear(clear),
-        .data_valid(data_valid),
         .a0_sel(a0_sel), .a1_sel(a1_sel), .b0_sel(b0_sel), .b1_sel(b1_sel),
-        .done(done),
         .data_out(out_data)
     );
 
@@ -66,7 +60,6 @@ module tt_um_tpu (
         .activation(activation),
         .weight0(weight0), .weight1(weight1), .weight2(weight2), .weight3(weight3),
         .input0(input0), .input1(input1), .input2(input2), .input3(input3),
-        .data_valid(data_valid),
         .a0_sel(a0_sel),
         .a1_sel(a1_sel),
         .b0_sel(b0_sel),
@@ -80,8 +73,8 @@ module tt_um_tpu (
 
     assign uo_out = out_data;
     
-    assign uio_out = {done, 7'b0};
-    assign uio_oe = 8'b10000000;
+    assign uio_out = {8'b0};
+    assign uio_oe = 8'b00000000;
 
     wire _unused = &{ena, uio_in[7:3]};
 

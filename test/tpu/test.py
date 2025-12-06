@@ -134,8 +134,13 @@ async def test_project(dut):
 
     print(results)
     print(expected)
-    # for i in range(4):
-    #    assert results[i] == expected[i], f"C[{i//2}][{i%2}] = {results[i]} != expected {expected[i]}"
+    for i in range(4):
+        rel_err = abs(results[i] - expected[i]) / abs(expected[i])
+        assert rel_err <= 0.12, (
+            f"C[{i//2}][{i%2}] = {results[i]} "
+            f"!= expected {expected[i]} (relative error {rel_err:.4f})"
+        )
+    dut._log.info("Test 1 passed")
 
     expected = get_expected_matmul(A, B)
 
@@ -143,8 +148,10 @@ async def test_project(dut):
 
     print(results)
     print(expected)
-    """
     for i in range(4):
-        assert results[i] == expected[i], f"C[{i//2}][{i%2}] = {results[i]} != expected {expected[i]}"
-    """
-    dut._log.info("End of TEST")
+        rel_err = abs(results[i] - expected[i]) / abs(expected[i])
+        assert rel_err <= 0.12, (
+            f"C[{i//2}][{i%2}] = {results[i]} "
+            f"!= expected {expected[i]} (relative error {rel_err:.4f})"
+        )
+    dut._log.info("Test 2 passed")
