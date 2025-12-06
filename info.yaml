@@ -51,11 +51,11 @@ pinout:
   uio[0]: "LOAD_EN (input)"
   uio[1]: "TRANSPOSE (input)"
   uio[2]: "ACTIVATION (input)"
-  uio[3]: "INSTRUCTION (input)" # choice between matmul and hadamard product (coming soon!!!!!)
-  uio[4]: "OPCODE[0] (input)" # if the user prefers stationary weights
+  uio[3]: "INSTRUCTION (input)" # choice between matmul and hadamard product
+  uio[4]: "OPCODE[0] (input)" # if the user prefers stationary weights (if time permits)
   uio[5]: "OPCODE[1] (input)" # when the user will load weights for stationary weight choice
-  uio[6]: "SYNC_LOAD (input)" # after the user has not used the pipeline for multiple cycles, this synchronizes the chip loading sequence
-  uio[7]: "DONE (output)"
+  uio[6]: ""
+  uio[7]: ""
 
 # Do not change!
 yaml_version: 6

@@ -55,12 +55,15 @@ def fp8_e4m3_encode(x: float) -> int:
 
     return (sign << 7) | (exp_fp8 << 3) | mant_fp8
 
-def get_expected_matmul(A, B, transpose=False, relu=False):
+def get_expected_output(A, B, transpose=False, hadamard=False, relu=False):
     A_mat = np.array(A).reshape(2, 2)
     B_mat = np.array(B).reshape(2, 2)
     if transpose:
         B_mat = B_mat.T
-    result = A_mat @ B_mat
+    if hadamard:
+        result = np.multiply(A_mat, B_mat)
+    else:
+        result = A_mat @ B_mat
     if relu:
         result = np.maximum(result, 0)
     return result.flatten().tolist()
@@ -74,10 +77,10 @@ async def reset_dut(dut):
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 1)
 
-async def load_matrix(dut, matrix, transpose=0, relu=0):
+async def load_matrix(dut, matrix, hadamard=0, transpose=0, relu=0):
     for i in range(4):
         dut.ui_in.value = fp8_e4m3_encode(matrix[i])
-        dut.uio_in.value = (transpose << 1) | (relu << 2) | 1
+        dut.uio_in.value = (hadamard << 3) | (transpose << 1) | (relu << 2) | 1
         await RisingEdge(dut.clk)
 
 async def parallel_load_read(dut, A, B, transpose=0, relu=0):
@@ -106,7 +109,40 @@ async def parallel_load_read(dut, A, B, transpose=0, relu=0):
     return results
 
 @cocotb.test()
-async def test_project(dut):
+async def test_hadamard(dut):
+    dut._log.info("Start")
+    clock = Clock(dut.clk, 20, units="ns")
+    cocotb.start_soon(clock.start())
+
+    # Reset
+    await reset_dut(dut)
+
+    A = [1, 2, 3, 4]  # row-major
+    B = [5, 6, 7, 8]  # row-major: [B00, B01, B10, B11]
+
+    await load_matrix(dut, A, hadamard=1)
+    await load_matrix(dut, B, hadamard=1)
+
+    # ------------------------------
+    # STEP 4: Read outputs
+    expected = get_expected_output(A, B, hadamard=True)
+    results = []
+
+    # Read test 1 matrices
+    results = await parallel_load_read(dut, [], [])
+
+    print(results)
+    print(expected)
+    for i in range(4):
+        rel_err = abs(results[i] - expected[i]) / abs(expected[i])
+        assert rel_err <= 0.12, (
+            f"C[{i//2}][{i%2}] = {results[i]} "
+            f"!= expected {expected[i]} (relative error {rel_err:.4f})"
+        )
+    dut._log.info("Elementwise product passed")
+
+@cocotb.test()
+async def test_gemm(dut):
     dut._log.info("Start")
     clock = Clock(dut.clk, 20, units="ns")
     cocotb.start_soon(clock.start())
@@ -123,7 +159,7 @@ async def test_project(dut):
 
     # ------------------------------
     # STEP 4: Read outputs
-    expected = get_expected_matmul(A, B)
+    expected = get_expected_output(A, B)
     results = []
 
     A = [7.9, -10, 3.5, 8]  # row-major
@@ -142,7 +178,7 @@ async def test_project(dut):
         )
     dut._log.info("Test 1 passed")
 
-    expected = get_expected_matmul(A, B)
+    expected = get_expected_output(A, B)
 
     results = await parallel_load_read(dut, [], [])
 
