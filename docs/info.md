@@ -15,7 +15,7 @@ The project is an AI chip inspired by Google's TPU. It multiply 8-bit floating-p
 
 Architecturally more simple than the [previous project](https://github.com/WilliamZhang20/ECE298A-TPU). The data moves through the blue, red, yellow, and green arrows.
 
-![alt](Block_Diagram.jpg)
+![alt](Block_Diagram.png)
 
 ## How to test
 

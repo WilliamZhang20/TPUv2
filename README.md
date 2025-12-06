@@ -21,7 +21,7 @@ Results:
 
 High Level Block Diagram:
 
-![alt](docs/Block_Diagram.jpg)
+![alt](docs/Block_Diagram.png)
 
 ## Verification Infrastructure
 
