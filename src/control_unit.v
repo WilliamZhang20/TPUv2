@@ -3,7 +3,7 @@
 module control_unit (
     input wire clk,
     input wire rst,
-    input wire load_en,
+    input wire enable,
 
     // Systolic array feedback for output selection
     input wire signed [15:0] c00, c01, c10, c11,
@@ -35,7 +35,7 @@ module control_unit (
             tail_hold <= 8'b0;
         end else begin
             // Handle memory addressing
-            if (load_en) begin
+            if (enable) begin
                 mem_addr <= mem_addr + 1;
             end else begin
                 mem_addr <= 0;

@@ -20,6 +20,8 @@ module tt_um_tpu (
     wire transpose = uio_in[1];
     wire activation = uio_in[2];
     wire elemwise = uio_in[3];
+    wire enable = uio_in[4];
+
     wire [2:0] mem_addr; // 3-bit address for matrix and element selection
 
     wire [7:0] weight0, weight1, weight2, weight3;
@@ -46,7 +48,7 @@ module tt_um_tpu (
     control_unit control (
         .clk(clk),
         .rst(~rst_n),
-        .load_en(load_en),
+        .enable(enable),
         .c00(outputs[0]), .c01(outputs[1]), .c10(outputs[2]), .c11(outputs[3]),
         .mem_addr(mem_addr),
         .clear(clear),

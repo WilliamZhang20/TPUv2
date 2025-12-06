@@ -80,32 +80,38 @@ async def reset_dut(dut):
 async def load_matrix(dut, matrix, hadamard=0, transpose=0, relu=0):
     for i in range(4):
         dut.ui_in.value = fp8_e4m3_encode(matrix[i])
-        dut.uio_in.value = (hadamard << 3) | (transpose << 1) | (relu << 2) | 1
+        dut.uio_in.value = (1 << 4) | (hadamard << 3) | (transpose << 1) | (relu << 2) | 1
         await RisingEdge(dut.clk)
+
+async def read_output(dut, hadamard=0):
+    dut.uio_in.value = (1 << 4) | (hadamard << 3) | 0
+    results = []
+    for _ in range(4):
+        await RisingEdge(dut.clk)
+        high = dut.uo_out.value.integer
+        await RisingEdge(dut.clk)
+        low = dut.uo_out.value.integer
+        combined = (high << 8) | low
+        float_val = bf16_to_float(combined)
+        results.append(float_val)
+    return results
 
 async def parallel_load_read(dut, A, B, hadamard=0, transpose=0, relu=0):
     results = []
-    count = 0
+    dut.uio_in.value = (1 << 4) | (hadamard << 3) | (transpose << 1) | (relu << 2) | 1
     
     for inputs in [A, B]:
         for i in range(2):
-            count += 1
-
-            if count == 4:
-                dut.uio_in.value = (hadamard << 3) | (transpose << 1) | (relu << 2) | 1
-            
             idx0 = i * 2
             idx1 = i * 2 + 1
             # Feed either real data or dummy zeros
             dut.ui_in.value = fp8_e4m3_encode(inputs[idx0]) if inputs else 0
             await ClockCycles(dut.clk, 1)
             high = dut.uo_out.value.integer
-            dut._log.info(f"Read high value = {high}")
             
             dut.ui_in.value = fp8_e4m3_encode(inputs[idx1]) if inputs else 0
             await ClockCycles(dut.clk, 1)
             low = dut.uo_out.value.integer
-            dut._log.info(f"Read low value = {low}")
 
             combined = (high << 8) | low
             float_val = bf16_to_float(combined)
@@ -134,7 +140,7 @@ async def test_hadamard(dut):
     results = []
 
     # Read test 1 matrices
-    results = await parallel_load_read(dut, A, B)
+    results = await read_output(dut, hadamard=1)
 
     print(results)
     print(expected)
