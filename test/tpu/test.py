@@ -381,11 +381,3 @@ async def test_large_matrices(dut):
     # check_expected(A, B, result)
 
     dut._log.info("First large matrix test passed")
-    
-    # Test with larger matrices
-    A = np.random.uniform(-50.0, 50.0, size=(6, 4)).astype(np.float32)
-    B = np.random.uniform(-50.0, 50.0, size=(6, 4)).astype(np.float32)
-
-    # check_expected(A, B, result, transpose=False, relu=False)
-
-    print("Second large matrix test passed")
