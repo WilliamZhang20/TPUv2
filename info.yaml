@@ -47,15 +47,15 @@ pinout:
   uo[6]: "OUT6"
   uo[7]: "OUT7"
 
-  # Bidirectional pins
-  uio[0]: "LOAD (input)" # Load into memory
-  uio[1]: "TRANSPOSE (input)"
-  uio[2]: "ACTIVATION (input)"
-  uio[3]: "INSTRUCTION (input)" # choice between matmul and hadamard product
-  uio[4]: "ENABLE (input)" # enable chip operation
-  uio[5]: ""
-  uio[6]: ""
-  uio[7]: ""
+  # Bidirectional pins (FULL DUPLEX)
+  uio[0]: "BIDIR: LOAD (input) / OUT8 (output)" # Load into memory
+  uio[1]: "BIDIR: TRANSPOSE (input) / OUT9 (output)"
+  uio[2]: "BIDIR: ACTIVATION (input) / OUT10 (output)"
+  uio[3]: "BIDIR: INSTRUCTION (input) / OUT11 (output)" # choice between matmul and hadamard product
+  uio[4]: "BIDIR: ENABLE (input) / OUT12 (output)" # enable chip operation
+  uio[5]: "BIDIR: STATION_WEIGHTS (input) / OUT13 (output)"
+  uio[6]: "BIDIR: LOAD_WEIGHTS (input) / OUT14 (output)"
+  uio[7]: "OUT15 (output)"
 
 # Do not change!
 yaml_version: 6

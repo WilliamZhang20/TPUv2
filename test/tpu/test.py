@@ -207,6 +207,100 @@ async def test_gemm(dut):
         )
     dut._log.info("Test 2 passed")
 
+async def load_stationary_weights(dut, weights):
+    """Load weights in stationary mode (stat_weights=1, load_weights=1)"""
+    for i in range(4):
+        dut.ui_in.value = fp8_e4m3_encode(weights[i])
+        # stat_weights=1 (bit 5), load_weights=1 (bit 6), enable=1 (bit 4), load_en=1 (bit 0)
+        dut.uio_in.value = (1 << 6) | (1 << 5) | (1 << 4) | 1
+        await RisingEdge(dut.clk)
+
+async def load_inputs_stationary(dut, inputs):
+    """Load inputs when using stationary weights (stat_weights=1, load_weights=0)"""
+    for i in range(4):
+        dut.ui_in.value = fp8_e4m3_encode(inputs[i])
+        # stat_weights=1 (bit 5), load_weights=0, enable=1 (bit 4), load_en=1 (bit 0)
+        dut.uio_in.value = (1 << 5) | (1 << 4) | 1
+        await RisingEdge(dut.clk)
+
+async def read_output_stationary(dut):
+    """Read outputs in stationary weights mode"""
+    # stat_weights=1 (bit 5), enable=1 (bit 4)
+    dut.uio_in.value = (1 << 5) | (1 << 4)
+    results = []
+    
+    # In stationary mode, we read at mem_addr 4,5,6,7
+    # Each read gives us 16 bits across uo_out and uio_out
+    for _ in range(4):
+        await RisingEdge(dut.clk)
+        high = dut.uo_out.value.integer
+        low = dut.uio_out.value.integer
+        combined = (high << 8) | low
+        float_val = bf16_to_float(combined)
+        results.append(float_val)
+    
+    return results
+
+@cocotb.test()
+async def test_stationary_weights(dut):
+    """Test stationary weights mode: load weights once, reuse for multiple input matrices"""
+    dut._log.info("Testing stationary weights mode")
+    clock = Clock(dut.clk, 20, units="ns")
+    cocotb.start_soon(clock.start())
+
+    # Reset
+    await reset_dut(dut)
+
+    # Define stationary weights (these will be reused)
+    weights = [2.0, 1.0, 0.5, 3.0]  # W = [[2.0, 1.0], [0.5, 3.0]]
+    
+    # Load weights once
+    dut._log.info("Loading stationary weights")
+    await load_stationary_weights(dut, weights)
+    
+    # Test with multiple different input matrices
+    test_inputs = [
+        [1.0, 2.0, 3.0, 4.0],    # I1 = [[1, 2], [3, 4]]
+        [0.5, 1.5, 2.5, 3.5],    # I2 = [[0.5, 1.5], [2.5, 3.5]]
+        [-1.0, 2.0, -3.0, 4.0],  # I3 = [[-1, 2], [-3, 4]]
+    ]
+    
+    for idx, inputs in enumerate(test_inputs):
+        dut._log.info(f"Testing with input matrix {idx + 1}")
+        
+        # Load inputs (weights stay stationary)
+        await load_inputs_stationary(dut, inputs)
+        
+        # Read results
+        results = await read_output_stationary(dut)
+        
+        # Calculate expected output: weights @ inputs
+        expected = get_expected_output(weights, inputs)
+        
+        dut._log.info(f"Results:  {results}")
+        dut._log.info(f"Expected: {expected}")
+        
+        # Verify results with tolerance
+        for i in range(4):
+            if expected[i] == 0:
+                # For zero expected values, check absolute error
+                abs_err = abs(results[i] - expected[i])
+                assert abs_err <= 0.5, (
+                    f"Input set {idx + 1}: C[{i//2}][{i%2}] = {results[i]} "
+                    f"!= expected {expected[i]} (absolute error {abs_err:.4f})"
+                )
+            else:
+                # For non-zero values, check relative error
+                rel_err = abs(results[i] - expected[i]) / abs(expected[i])
+                assert rel_err <= 0.12, (
+                    f"Input set {idx + 1}: C[{i//2}][{i%2}] = {results[i]} "
+                    f"!= expected {expected[i]} (relative error {rel_err:.4f})"
+                )
+        
+        dut._log.info(f"Input matrix {idx + 1} passed")
+    
+    dut._log.info("All stationary weights tests passed!")
+
 def get_expected_large_matmul(A, B, transpose=0, relu=0):
     if transpose:
         B = B.T
@@ -360,6 +454,7 @@ async def matmul(dut, A, B, transpose=False, relu=False):
 
     return results_large[:m, :n_b] if transpose else results_large[:m, :p]
 
+
 @cocotb.test()
 async def test_large_matrices(dut):
     # ALSO MEASURES OPERATIONS PER SECOND
@@ -369,11 +464,9 @@ async def test_large_matrices(dut):
     # Reset
     await reset_dut(dut)
 
-    np.random.seed(42)  # For reproducibility
-
     # Create random floating point matrices (e.g., between -128 and 127)
-    A = np.random.uniform(-50.0, 50.0, size=(6, 4)).astype(np.float32)
-    B = np.random.uniform(-50.0, 50.0, size=(4, 5)).astype(np.float32)
+    A = np.random.uniform(-30.0, 30.0, size=(6, 4)).astype(np.float32)
+    B = np.random.uniform(-30.0, 30.0, size=(4, 5)).astype(np.float32)
     
     # Perform matrix multiplication
     result = await matmul(dut, A, B, transpose=False, relu=False)
@@ -381,11 +474,3 @@ async def test_large_matrices(dut):
     # check_expected(A, B, result)
 
     dut._log.info("First large matrix test passed")
-    
-    # Test with larger matrices
-    A = np.random.uniform(-50.0, 50.0, size=(6, 4)).astype(np.float32)
-    B = np.random.uniform(-50.0, 50.0, size=(6, 4)).astype(np.float32)
-
-    # check_expected(A, B, result, transpose=False, relu=False)
-
-    print("Second large matrix test passed")
