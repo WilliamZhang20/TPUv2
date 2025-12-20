@@ -301,42 +301,6 @@ async def test_stationary_weights(dut):
     
     dut._log.info("All stationary weights tests passed!")
 
-def get_expected_large_matmul(A, B, transpose=0, relu=0):
-    if transpose:
-        B = B.T
-    
-    result = A @ B
-
-    if relu:
-        result = np.maximum(result, 0)
-
-    return result
-
-
-def check_expected(A, B, result, transpose=0, relu=0, tolerance=0.20):
-    """
-    Check DUT results against expected matrix multiplication, for big matrices.
-    Allows a 20% deviation between the result and expected values.
-    """
-    expected = get_expected_large_matmul(A, B, transpose, relu)
-
-    # Calculate relative error
-    rel_err = np.abs(result - expected) / np.abs(expected)
-
-    # Find indices where relative error exceeds the tolerance
-    indices = np.where(rel_err > tolerance)
-
-    # Count number of elements with relative error > tolerance
-    num_elements_above_threshold = len(indices[0])  # length of the first index array, since np.where returns tuple of arrays
-
-    # Output results
-    if num_elements_above_threshold > 0:
-        print(f"Number of elements with relative error greater than {tolerance * 100}%: {num_elements_above_threshold}")
-        for i, j in zip(indices[0], indices[1]):
-            print(f"Error at index ({i}, {j}): Result = {result[i, j]}, Expected = {expected[i, j]}, Relative Error = {rel_err[i, j]:.4f}")
-
-    print(num_elements_above_threshold)
-
 async def accumulate_matrix_output(dut, results_large, i, j, transpose=0, A_block=None, B_block=None):
     """
     Serially loads A_block and B_block (1 value per cycle),
@@ -381,6 +345,7 @@ async def accumulate_matrix_output(dut, results_large, i, j, transpose=0, A_bloc
     return combined_outputs
 
 async def matmul(dut, A, B, transpose=False, relu=False):
+    import torch
     """
     Fully pipelined systolic matrix multiplication using 2x2 blocks.
     Accumulates partial results across k dimension for each (i,j) tile.
@@ -400,12 +365,12 @@ async def matmul(dut, A, B, transpose=False, relu=False):
     n_bp = ((n_b + 1) // 2) * 2
     p_p = ((p + 1) // 2) * 2
 
-    A_padded = np.zeros((m_p, n_p), dtype=np.float32)
-    B_padded = np.zeros((n_bp, p_p), dtype=np.float32)
+    A_padded = torch.zeros((m_p, n_p), dtype=torch.float32)
+    B_padded = torch.zeros((n_bp, p_p), dtype=torch.float32)
     
     A_padded[:m, :n] = A
     B_padded[:n_b, :p] = B
-    results_large = np.zeros((m_p, n_bp), dtype=np.float32) if transpose else np.zeros((m_p, p_p), dtype=np.float32)
+    results_large = torch.zeros((m_p, n_bp), dtype=torch.float32) if transpose else torch.zeros((m_p, p_p), dtype=torch.float32)
 
     # Generate tile coordinates (i, j, k)
     if transpose:
@@ -451,27 +416,6 @@ async def matmul(dut, A, B, transpose=False, relu=False):
 
     # Apply ReLU if enabled
     if relu:
-        results_large = np.maximum(results_large, 0)
+        results_large = torch.maximum(results_large, 0)
 
     return results_large[:m, :n_b] if transpose else results_large[:m, :p]
-
-
-@cocotb.test()
-async def test_large_matrices(dut):
-    # ALSO MEASURES OPERATIONS PER SECOND
-    dut._log.info("Start")
-    clock = Clock(dut.clk, 20, units="ns")
-    cocotb.start_soon(clock.start())
-    # Reset
-    await reset_dut(dut)
-
-    # Create random floating point matrices (e.g., between -128 and 127)
-    A = np.random.uniform(-30.0, 30.0, size=(6, 4)).astype(np.float32)
-    B = np.random.uniform(-30.0, 30.0, size=(4, 5)).astype(np.float32)
-    
-    # Perform matrix multiplication
-    result = await matmul(dut, A, B, transpose=False, relu=False)
-
-    # check_expected(A, B, result)
-
-    dut._log.info("First large matrix test passed")

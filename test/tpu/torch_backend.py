@@ -46,7 +46,7 @@ def tpu_matmul_fp8(a_fp8: Tensor, b_fp8: Tensor, bias: Optional[Tensor] = None) 
             await reset_dut(dut)
             # matmul expects FP8 E4M3 tensors, returns FP32
             result_fp32 = await matmul(dut, a_fp8, b_fp8, 
-                                       transpose=True, is_torch=True)
+                                       transpose=True)
             future.set_result(result_fp32)
         except Exception as e:
             future.set_exception(e)
@@ -90,20 +90,20 @@ def make_backend(dut_arg):
         gm.graph.print_tabular()
 
         # Find and replace torchao Float8 linear operations
-        # The pattern in the graph is complex because torchao does internal casting
-        # We need to decompose the trampoline_autograd_apply and inject our TPU op
+        # The trampoline_autograd_apply appears as call_function nodes
         
-        # Import the actual Float8 matmul function to replace it
-        from torchao.float8.float8_linear import _ToFloat8ConstrFunc
+        replaced_nodes = []
         
         for node in list(gm.graph.nodes):
             # Look for the torchao autograd apply function
             if (node.op == 'call_function' and 
+                callable(node.target) and
                 hasattr(node.target, '__name__') and
                 'trampoline_autograd_apply' in node.target.__name__):
                 
-                print(f"\nFound Float8 linear operation: {node.name}")
-                print(f"  Args: {[arg.name if isinstance(arg, torch.fx.Node) else arg for arg in node.args]}")
+                print(f"\n✓ Found Float8 linear operation: {node.name}")
+                print(f"  Target: {node.target.__name__}")
+                print(f"  Args: {len(node.args)}")
                 
                 # Extract input (arg 0), transposed weight (arg 1), and configs
                 if len(node.args) >= 4:
@@ -112,10 +112,14 @@ def make_backend(dut_arg):
                     linear_mm_config = node.args[2]
                     float8_config = node.args[3]
                     
+                    print(f"  Input: {input_node.name if isinstance(input_node, torch.fx.Node) else input_node}")
+                    print(f"  Weight_t: {weight_t_node.name if isinstance(weight_t_node, torch.fx.Node) else weight_t_node}")
+                    
                     # Find the bias add operation that follows
                     bias_node = None
                     add_node = None
                     for user in list(node.users):
+                        print(f"  User: {user.name} target={user.target}")
                         if user.op == 'call_function' and user.target in (torch.ops.aten.add.default, torch.ops.aten.add.Tensor):
                             # This is the bias add
                             add_node = user
@@ -123,6 +127,15 @@ def make_backend(dut_arg):
                             for arg in user.args:
                                 if arg != node and isinstance(arg, torch.fx.Node):
                                     bias_node = arg
+                                    break
+                            break
+                        # Also check for built-in add function
+                        if callable(user.target) and user.target.__name__ == 'add':
+                            add_node = user
+                            for arg in user.args:
+                                if arg != node and isinstance(arg, torch.fx.Node):
+                                    bias_node = arg
+                                    break
                             break
                     
                     # Find the original weight (before transpose)
@@ -134,65 +147,78 @@ def make_backend(dut_arg):
                         weight_node = weight_t_node.args[0]
                     
                     if weight_node is not None:
-                        print(f"  Input: {input_node.name}")
-                        print(f"  Weight: {weight_node.name}")
-                        print(f"  Bias: {bias_node.name if bias_node else None}")
+                        print(f"  → Input: {input_node.name}")
+                        print(f"  → Weight: {weight_node.name}")
+                        print(f"  → Bias: {bias_node.name if bias_node else 'None'}")
                         
-                        # Replace with TPU FP8 matmul wrapped in FP8 conversion
-                        with gm.graph.inserting_before(node):
-                            # We need to cast FP32 inputs to FP8 before calling TPU
-                            # Get cast configs from float8_config
-                            input_cast_config = None
-                            weight_cast_config = None
+                        # Insert nodes in correct order: casts first, then matmul
+                        # We need to insert them one by one to maintain order
+                        if bias_node is not None:
+                            # Insert input cast after bias
+                            with gm.graph.inserting_after(bias_node):
+                                input_fp8 = gm.graph.call_function(
+                                    torch.ops.aten._to_copy.default,
+                                    args=(input_node,),
+                                    kwargs={'dtype': torch.float8_e4m3fn}
+                                )
                             
-                            # The float8_config node should have cast_config_input and cast_config_weight
-                            for config_node in gm.graph.nodes:
-                                if config_node == float8_config:
-                                    # Look at the kwargs
-                                    if 'cast_config_input' in config_node.kwargs:
-                                        input_cast_config = config_node.kwargs['cast_config_input']
-                                    if 'cast_config_weight' in config_node.kwargs:
-                                        weight_cast_config = config_node.kwargs['cast_config_weight']
+                            # Insert weight cast after input cast
+                            with gm.graph.inserting_after(input_fp8):
+                                weight_fp8 = gm.graph.call_function(
+                                    torch.ops.aten._to_copy.default,
+                                    args=(weight_node,),
+                                    kwargs={'dtype': torch.float8_e4m3fn}
+                                )
                             
-                            # Insert FP8 casting operations
-                            # Cast input to FP8 E4M3
-                            input_fp8 = gm.graph.call_function(
-                                torch.ops.aten._to_copy.default,
-                                args=(input_node,),
-                                kwargs={'dtype': torch.float8_e4m3fn}
-                            )
-                            
-                            # Cast weight to FP8 E4M3 (weight is already a parameter)
-                            weight_fp8 = gm.graph.call_function(
-                                torch.ops.aten._to_copy.default,
-                                args=(weight_node,),
-                                kwargs={'dtype': torch.float8_e4m3fn}
-                            )
-                            
-                            # Create TPU matmul call with FP8 inputs
-                            tpu_node = gm.graph.call_function(
-                                torch.ops.tpu.matmul_fp8,
-                                args=(input_fp8, weight_fp8, bias_node),
-                            )
-                            
-                            print(f"  Replacing with: {tpu_node.name}")
-                            
-                            # Replace uses
-                            if add_node is not None:
-                                # Replace the add node (which includes bias)
-                                add_node.replace_all_uses_with(tpu_node)
-                                gm.graph.erase_node(add_node)
-                            else:
-                                # No bias, just replace the linear
-                                node.replace_all_uses_with(tpu_node)
-                            
-                            # Clean up the original linear node
-                            if len(list(node.users)) == 0:
-                                gm.graph.erase_node(node)
-                            
-                            # Clean up transpose node if no longer used
-                            if isinstance(weight_t_node, torch.fx.Node) and len(list(weight_t_node.users)) == 0:
-                                gm.graph.erase_node(weight_t_node)
+                            # Insert matmul after weight cast
+                            with gm.graph.inserting_after(weight_fp8):
+                                tpu_node = gm.graph.call_function(
+                                    torch.ops.tpu.matmul_fp8,
+                                    args=(input_fp8, weight_fp8, bias_node),
+                                )
+                        else:
+                            # No bias case - insert before the node that uses the result
+                            with gm.graph.inserting_before(node):
+                                input_fp8 = gm.graph.call_function(
+                                    torch.ops.aten._to_copy.default,
+                                    args=(input_node,),
+                                    kwargs={'dtype': torch.float8_e4m3fn}
+                                )
+                                
+                                weight_fp8 = gm.graph.call_function(
+                                    torch.ops.aten._to_copy.default,
+                                    args=(weight_node,),
+                                    kwargs={'dtype': torch.float8_e4m3fn}
+                                )
+                                
+                                tpu_node = gm.graph.call_function(
+                                    torch.ops.tpu.matmul_fp8,
+                                    args=(input_fp8, weight_fp8, None),
+                                )
+                        
+                        print(f"  ✓ Created TPU node: {tpu_node.name}")
+                        
+                        # Replace uses
+                        if add_node is not None:
+                            # Replace the add node (which includes bias)
+                            print(f"  ✓ Replacing add node: {add_node.name}")
+                            add_node.replace_all_uses_with(tpu_node)
+                            replaced_nodes.append(add_node)
+                        else:
+                            # No bias, just replace the linear
+                            print(f"  ✓ Replacing linear node directly")
+                            node.replace_all_uses_with(tpu_node)
+                        
+                        # Mark nodes for deletion
+                        replaced_nodes.append(node)
+                        if isinstance(weight_t_node, torch.fx.Node):
+                            replaced_nodes.append(weight_t_node)
+        
+        # Clean up replaced nodes
+        for node in replaced_nodes:
+            if len(list(node.users)) == 0:
+                print(f"  Erasing: {node.name}")
+                gm.graph.erase_node(node)
 
         gm.recompile()
         print("\n=== Modified graph ===")
