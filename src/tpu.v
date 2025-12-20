@@ -95,9 +95,11 @@ module tt_um_tpu (
     end
 
     always @(*) begin
-        uo_out = 8'b0;
+        uo_out  = 8'b0;
+        uio_out = 8'b0;
+        uio_oe  = 8'b0;
+
         if (!stat_weights) begin
-            uio_out = {8'b0};
             uio_oe = 8'b00000000;
             case (mem_addr)
                 3'b000: uo_out = outputs[0][15:8];
@@ -113,24 +115,20 @@ module tt_um_tpu (
             uio_oe = 8'b11111111;
             case (mem_addr)
                 3'b100: begin
-                    uo_out = outputs[0][15:8];
+                    uo_out  = outputs[0][15:8];
                     uio_out = outputs[0][7:0];
                 end
                 3'b101: begin
-                    uo_out = outputs[1][15:8];
+                    uo_out  = outputs[1][15:8];
                     uio_out = outputs[1][7:0];
                 end
                 3'b110: begin
-                    uo_out = hold2[15:8];
+                    uo_out  = hold2[15:8];
                     uio_out = hold2[7:0];
                 end
                 3'b111: begin
-                    uo_out = tail_hold[15:8];
+                    uo_out  = tail_hold[15:8];
                     uio_out = tail_hold[7:0];
-                end
-                default: begin
-                    uo_out = 8'b0;
-                    uo_out = 8'b0;
                 end
             endcase
         end
