@@ -110,12 +110,16 @@ async def tpu_torch_test(dut):
     transform = transforms.Compose([transforms.ToTensor()])
     test_ds = torchvision.datasets.MNIST(root='./data', train=False,
                                          download=True, transform=transform)
-    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=1, shuffle=False)
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=1, shuffle=True)
 
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
 
+    test_correct = 0
+    test_total = 0
+
     for i, (image, label) in enumerate(test_loader):
+        test_total += 1
         if i >= 5:
             break
         # RUN INFERENCE IN SEPARATE THREAD
@@ -137,5 +141,10 @@ async def tpu_torch_test(dut):
 
             print("Predicted Label:", torch.argmax(dut_out, dim=1).item())
             print("Actual label:", label.item())
+            if (torch.argmax(dut_out, dim=1).item() == label.item()):
+                test_correct += 1
+
+    accuracy = test_correct / test_total
+    assert accuracy >= 0.7, f"Test accuracy too low: {accuracy:.4f}"
 
     print("TEST PASSED")

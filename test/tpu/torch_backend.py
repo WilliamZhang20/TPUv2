@@ -37,7 +37,7 @@ def tpu_matmul_fp8(a_fp8: Tensor, b_fp8: Tensor, bias: Optional[Tensor] = None) 
         a_fp8 = a_fp8.to(torch.float8_e4m3fn)
     if b_fp8.dtype != torch.float8_e4m3fn:
         b_fp8 = b_fp8.to(torch.float8_e4m3fn)
-    
+
     # Call TPU hardware with FP8 matrices
     # Hardware performs: matmul in FP8 -> BF16 accumulation (2x2 tiles) -> FP32 output
     future = concurrent.futures.Future()
@@ -56,7 +56,7 @@ def tpu_matmul_fp8(a_fp8: Tensor, b_fp8: Tensor, bias: Optional[Tensor] = None) 
     # Add bias
     if bias is not None:
         result_fp32 = result_fp32 + bias
-        
+
     return result_fp32
 
 @register_fake("tpu::matmul_fp8")
@@ -86,8 +86,8 @@ def make_backend(dut_arg):
 
     @register_backend(name=f"tpu_net")
     def _backend(gm: torch.fx.GraphModule, example_inputs):
-        print("\n=== FX graph received ===")
-        gm.graph.print_tabular()
+        # print("\n=== FX graph received ===")
+        # gm.graph.print_tabular()
 
         # Find and replace torchao Float8 linear operations
         # The trampoline_autograd_apply appears as call_function nodes
@@ -101,9 +101,9 @@ def make_backend(dut_arg):
                 hasattr(node.target, '__name__') and
                 'trampoline_autograd_apply' in node.target.__name__):
                 
-                print(f"\n✓ Found Float8 linear operation: {node.name}")
-                print(f"  Target: {node.target.__name__}")
-                print(f"  Args: {len(node.args)}")
+                # print(f"\n✓ Found Float8 linear operation: {node.name}")
+                # print(f"  Target: {node.target.__name__}")
+                # print(f"  Args: {len(node.args)}")
                 
                 # Extract input (arg 0), transposed weight (arg 1), and configs
                 if len(node.args) >= 4:
@@ -112,14 +112,14 @@ def make_backend(dut_arg):
                     linear_mm_config = node.args[2]
                     float8_config = node.args[3]
                     
-                    print(f"  Input: {input_node.name if isinstance(input_node, torch.fx.Node) else input_node}")
-                    print(f"  Weight_t: {weight_t_node.name if isinstance(weight_t_node, torch.fx.Node) else weight_t_node}")
+                    # print(f"  Input: {input_node.name if isinstance(input_node, torch.fx.Node) else input_node}")
+                    # print(f"  Weight_t: {weight_t_node.name if isinstance(weight_t_node, torch.fx.Node) else weight_t_node}")
                     
                     # Find the bias add operation that follows
                     bias_node = None
                     add_node = None
                     for user in list(node.users):
-                        print(f"  User: {user.name} target={user.target}")
+                        # print(f"  User: {user.name} target={user.target}")
                         if user.op == 'call_function' and user.target in (torch.ops.aten.add.default, torch.ops.aten.add.Tensor):
                             # This is the bias add
                             add_node = user
@@ -147,9 +147,11 @@ def make_backend(dut_arg):
                         weight_node = weight_t_node.args[0]
                     
                     if weight_node is not None:
+                        """
                         print(f"  → Input: {input_node.name}")
                         print(f"  → Weight: {weight_node.name}")
                         print(f"  → Bias: {bias_node.name if bias_node else 'None'}")
+                        """
                         
                         # Insert nodes in correct order: casts first, then matmul
                         # We need to insert them one by one to maintain order
@@ -196,17 +198,17 @@ def make_backend(dut_arg):
                                     args=(input_fp8, weight_fp8, None),
                                 )
                         
-                        print(f"  ✓ Created TPU node: {tpu_node.name}")
+                        # print(f"  ✓ Created TPU node: {tpu_node.name}")
                         
                         # Replace uses
                         if add_node is not None:
                             # Replace the add node (which includes bias)
-                            print(f"  ✓ Replacing add node: {add_node.name}")
+                            # print(f"  ✓ Replacing add node: {add_node.name}")
                             add_node.replace_all_uses_with(tpu_node)
                             replaced_nodes.append(add_node)
                         else:
                             # No bias, just replace the linear
-                            print(f"  ✓ Replacing linear node directly")
+                            # print(f"  ✓ Replacing linear node directly")
                             node.replace_all_uses_with(tpu_node)
                         
                         # Mark nodes for deletion
@@ -217,13 +219,14 @@ def make_backend(dut_arg):
         # Clean up replaced nodes
         for node in replaced_nodes:
             if len(list(node.users)) == 0:
-                print(f"  Erasing: {node.name}")
+                # print(f"  Erasing: {node.name}")
                 gm.graph.erase_node(node)
 
         gm.recompile()
+        """
         print("\n=== Modified graph ===")
         gm.graph.print_tabular()
-
+        """
         # Let Inductor compile the rest
         return compile_fx(gm, example_inputs)
 

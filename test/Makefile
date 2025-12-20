@@ -43,10 +43,10 @@ endif
 # Allow sharing configuration between design and testbench via `include`:
 COMPILE_ARGS 		+= -I$(SRC_DIR)
 
-.PHONY: all test-mac test-top
+.PHONY: all test-mac test-top test-nn
 
 all:
-	$(MAKE) test-mac test-top
+	$(MAKE) test-mac test-top test-nn
 
 test-mac:
 	$(MAKE) clean

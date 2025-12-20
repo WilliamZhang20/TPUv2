@@ -128,6 +128,10 @@ module tt_um_tpu (
                     uo_out = tail_hold[15:8];
                     uio_out = tail_hold[7:0];
                 end
+                default: begin
+                    uo_out = 8'b0;
+                    uo_out = 8'b0;
+                end
             endcase
         end
     end

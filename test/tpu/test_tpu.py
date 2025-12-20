@@ -2,6 +2,7 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, ClockCycles
 import numpy as np
+from cocotb.utils import get_sim_time
 import math
 import struct
 import itertools
@@ -97,14 +98,20 @@ async def read_output(dut, hadamard=0):
         results.append(float_val)
     return results
 
-async def parallel_load_read(dut, A, B, hadamard=0, transpose=0, relu=0):
+async def parallel_load_read(dut, A, B, instr=(0, 0, 0), next_instr=(0, 0, 0)):
     results = []
+    hadamard, transpose, relu = instr
+    next_hadamard, next_transpose, next_relu = next_instr
     dut.uio_in.value = (1 << 4) | (hadamard << 3) | (transpose << 1) | (relu << 2) | 1
-    
+    cycle = 0
+
     for inputs in [A, B]:
         for i in range(2):
+            cycle += 1
             idx0 = i * 2
             idx1 = i * 2 + 1
+            if cycle == 3:
+                dut.uio_in.value = (1 << 4) | (next_hadamard << 3) | (next_transpose << 1) | (next_relu << 2) | 1
             # Feed either real data or dummy zeros
             dut.ui_in.value = fp8_e4m3_encode(inputs[idx0]) if inputs else 0
             await ClockCycles(dut.clk, 1)
@@ -113,9 +120,6 @@ async def parallel_load_read(dut, A, B, hadamard=0, transpose=0, relu=0):
             dut.ui_in.value = fp8_e4m3_encode(inputs[idx1]) if inputs else 0
             await ClockCycles(dut.clk, 1)
             low = dut.uo_out.value.integer
-
-            misc = dut.uio_out.value.integer
-            dut._log.info(f"Misc output: {misc}")
 
             combined = (high << 8) | low
             float_val = bf16_to_float(combined)
@@ -183,8 +187,6 @@ async def test_gemm(dut):
     # Read test 1 matrices
     results = await parallel_load_read(dut, A, B)
 
-    print(results)
-    print(expected)
     for i in range(4):
         rel_err = abs(results[i] - expected[i]) / abs(expected[i])
         assert rel_err <= 0.12, (
@@ -195,10 +197,11 @@ async def test_gemm(dut):
 
     expected = get_expected_output(A, B)
 
-    results = await parallel_load_read(dut, [], [])
+    A = [5, -6, 7, 8]  # row-major
+    B = [8, 9, 6, 8]  # row-major: [B00, B01, B10, B11]
 
-    print(results)
-    print(expected)
+    results = await parallel_load_read(dut, A, B, next_instr=(0, 1, 1))
+
     for i in range(4):
         rel_err = abs(results[i] - expected[i]) / abs(expected[i])
         assert rel_err <= 0.12, (
@@ -206,6 +209,14 @@ async def test_gemm(dut):
             f"!= expected {expected[i]} (relative error {rel_err:.4f})"
         )
     dut._log.info("Test 2 passed")
+
+    expected = get_expected_output(A, B, transpose=True, relu=True)
+    results = await parallel_load_read(dut, [], [], instr=(0, 1, 1))
+
+    for i in range(4):
+        assert results[i] == expected[i], f"C[{i//2}][{i%2}] = {results[i]} != expected {expected[i]}"
+
+    dut._log.info("ReLU + Transpose test passed!")
 
 async def load_stationary_weights(dut, weights):
     """Load weights in stationary mode (stat_weights=1, load_weights=1)"""
@@ -317,7 +328,7 @@ async def accumulate_matrix_output(dut, results_large, i, j, transpose=0, A_bloc
     else:
         input_stream = [0] * 8
 
-    dut.uio_in.value = (transpose << 1) | 1  # load_en=1
+    dut.uio_in.value = (1 << 4) | (transpose << 1) | 1  # load_en=1
 
     partial_outputs = []
 
@@ -351,7 +362,6 @@ async def matmul(dut, A, B, transpose=False, relu=False):
     Accumulates partial results across k dimension for each (i,j) tile.
     Loads A and B in parallel with reading previous output.
     """
-    print("REACHED CHIP KERNEL!!!!")
     m, n = A.shape
     n_b, p = B.shape
     if (transpose):
@@ -416,6 +426,163 @@ async def matmul(dut, A, B, transpose=False, relu=False):
 
     # Apply ReLU if enabled
     if relu:
-        results_large = torch.maximum(results_large, 0)
+        results_large = torch.maximum(results_large, torch.tensor(0.0))
 
     return results_large[:m, :n_b] if transpose else results_large[:m, :p]
+
+async def matmul_faster(dut, A, B, transpose=False, relu=False):
+    """
+    Accelerated matmul using A-stationary mode when legal (n <= 2),
+    with pipelined B streaming + output readback.
+    """
+    import torch
+
+    m, n = A.shape
+    n_b, p = B.shape
+
+    if transpose:
+        assert n == p
+    else:
+        assert n == n_b
+
+    if n > 2:
+        return await matmul(dut, A, B, transpose=transpose, relu=relu)
+
+    m_p = ((m + 1) // 2) * 2
+    p_p = ((p + 1) // 2) * 2
+
+    A_p = torch.zeros((m_p, 2), dtype=torch.float32)
+    B_p = torch.zeros((2, p_p), dtype=torch.float32)
+
+    A_p[:m, :n] = A
+    B_p[:n, :p] = B
+
+    C = torch.zeros((m_p, p_p), dtype=torch.float32)
+
+    for i in range(0, m_p, 2):
+        A_block = A_p[i:i+2, :2].flatten().tolist()
+        await load_stationary_weights(dut, A_block)
+
+        # ---- Prime pipeline with first B tile ----
+        j0 = 0
+        B_block = B_p[:2, j0:j0+2].flatten().tolist()
+        await load_inputs_stationary(dut, B_block)
+
+        # ---- Pipelined loop ----
+        for j in range(2, p_p, 2):
+            # Load next B while reading previous output
+            B_next = B_p[:2, j:j+2].flatten().tolist()
+
+            results = await parallel_rw_stationary(dut, B_next)
+
+            C[i,   j-2] += results[0]
+            C[i,   j-1] += results[1]
+            C[i+1, j-2] += results[2]
+            C[i+1, j-1] += results[3]
+
+        # ---- Drain final output ----
+        results = await parallel_rw_stationary(dut, [0, 0, 0, 0])
+
+        C[i,   p_p-2] += results[0]
+        C[i,   p_p-1] += results[1]
+        C[i+1, p_p-2] += results[2]
+        C[i+1, p_p-1] += results[3]
+
+    if relu:
+        C = torch.maximum(C, torch.tensor(0.0))
+
+    return C[:m, :p]
+
+@cocotb.test()
+async def test_matmul_faster_matches_reference(dut):
+    import torch
+    dut._log.info("Testing matmul_faster vs reference matmul")
+
+    # Clock
+    clock = Clock(dut.clk, 20, units="ns")
+    cocotb.start_soon(clock.start())
+
+    # Reset
+    await reset_dut(dut)
+
+    # Test configurations
+    test_cases = [
+        # (m, n, p, transpose, relu)
+        (4, 4, 4, False, False),
+        (5, 3, 6, False, False),
+        (6, 5, 3, False, True),
+        (4, 6, 5, True, False),
+        (7, 7, 7, True, True),
+    ]
+
+    torch.manual_seed(0)
+    
+    for idx, (m, n, p, transpose, relu) in enumerate(test_cases):
+        dut._log.info(
+            f"Case {idx+1}: A={m}x{n}, B={n}x{p}, "
+            f"transpose={transpose}, relu={relu}"
+        )
+
+        # Generate random inputs (FP8-safe range)
+        A = (torch.rand(m, n) * 6.0 - 3.0).float()
+        if transpose:
+            B = (torch.rand(p, n) * 6.0 - 3.0).float()
+        else:
+            B = (torch.rand(n, p) * 6.0 - 3.0).float()
+
+        t0 = get_sim_time(units="ns")
+        ref_out = await matmul(
+            dut,
+            A,
+            B,
+            transpose=transpose,
+            relu=relu,
+        )
+        t1 = get_sim_time(units="ns")
+        ref_time = t1 - t0
+
+        # Reset DUT to avoid state contamination
+        await reset_dut(dut)
+
+        t2 = get_sim_time(units="ns")
+        fast_out = await matmul_faster(
+            dut,
+            A,
+            B,
+            transpose=transpose,
+            relu=relu,
+        )
+        t3 = get_sim_time(units="ns")
+        fast_time = t3 - t2
+
+        ref_out = ref_out.cpu()
+        fast_out = fast_out.cpu()
+
+        assert ref_out.shape == fast_out.shape
+
+        for i in range(ref_out.shape[0]):
+            for j in range(ref_out.shape[1]):
+                ref_val = ref_out[i, j].item()
+                fast_val = fast_out[i, j].item()
+                assert ref_val == fast_val, (
+                    f"Mismatch at ({i},{j}): ref={ref_val}, fast={fast_val}"
+                )
+
+        speedup = ref_time / fast_time if fast_time > 0 else float("inf")
+
+        dut._log.info(
+            f"Case {idx+1} timing: "
+            f"ref={ref_time:.0f} ns, "
+            f"fast={fast_time:.0f} ns, "
+            f"speedup={speedup:.2f}×"
+        )
+
+        # Optional sanity check: fast path should not be slower
+        if n <= 2:
+            assert speedup >= 1.0, (
+                f"Expected speedup for n<=2, got {speedup:.2f}×"
+            )
+
+        dut._log.info(f"Case {idx+1} passed ✔")
+
+    dut._log.info("All matmul_faster correctness + benchmark tests passed 🎉")
