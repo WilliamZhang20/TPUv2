@@ -223,15 +223,15 @@ async def load_inputs_stationary(dut, inputs):
         dut.uio_in.value = (1 << 5) | (1 << 4) | 1
         await RisingEdge(dut.clk)
 
-async def read_output_stationary(dut):
-    """Read outputs in stationary weights mode"""
+async def parallel_rw_stationary(dut, inputs):
     # stat_weights=1 (bit 5), enable=1 (bit 4)
-    dut.uio_in.value = (1 << 5) | (1 << 4)
+    dut.uio_in.value = (1 << 5) | (1 << 4) | 1
     results = []
     
     # In stationary mode, we read at mem_addr 4,5,6,7
     # Each read gives us 16 bits across uo_out and uio_out
-    for _ in range(4):
+    for i in range(4):
+        dut.ui_in.value = fp8_e4m3_encode(inputs[i])
         await RisingEdge(dut.clk)
         high = dut.uo_out.value.integer
         low = dut.uio_out.value.integer
@@ -272,7 +272,7 @@ async def test_stationary_weights(dut):
         await load_inputs_stationary(dut, inputs)
         
         # Read results
-        results = await read_output_stationary(dut)
+        results = await parallel_rw_stationary(dut, test_inputs[idx+1] if idx + 1 < len(test_inputs) else [0,0,0,0])
         
         # Calculate expected output: weights @ inputs
         expected = get_expected_output(weights, inputs)
@@ -386,6 +386,7 @@ async def matmul(dut, A, B, transpose=False, relu=False):
     Accumulates partial results across k dimension for each (i,j) tile.
     Loads A and B in parallel with reading previous output.
     """
+    print("REACHED CHIP KERNEL!!!!")
     m, n = A.shape
     n_b, p = B.shape
     if (transpose):
