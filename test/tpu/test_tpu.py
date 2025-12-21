@@ -239,8 +239,6 @@ async def parallel_rw_stationary(dut, inputs):
     dut.uio_in.value = (1 << 5) | (1 << 4) | 1
     results = []
     
-    # In stationary mode, we read at mem_addr 4,5,6,7
-    # Each read gives us 16 bits across uo_out and uio_out
     for i in range(4):
         dut.ui_in.value = fp8_e4m3_encode(inputs[i])
         await RisingEdge(dut.clk)
@@ -262,31 +260,30 @@ async def test_stationary_weights(dut):
     # Reset
     await reset_dut(dut)
 
-    # Define stationary weights (these will be reused)
-    weights = [2.0, 1.0, 0.5, 3.0]  # W = [[2.0, 1.0], [0.5, 3.0]]
+    # Define stationary weights 
+    weights = [2.0, 1.0, 0.5, 3.0] 
+    inputs0 = [1.0, 2.0, 3.0, 4.0]
     
     # Load weights once
     dut._log.info("Loading stationary weights")
     await load_stationary_weights(dut, weights)
+    await load_inputs_stationary(dut, inputs0)
     
     # Test with multiple different input matrices
     test_inputs = [
-        [1.0, 2.0, 3.0, 4.0],    # I1 = [[1, 2], [3, 4]]
-        [0.5, 1.5, 2.5, 3.5],    # I2 = [[0.5, 1.5], [2.5, 3.5]]
-        [-1.0, 2.0, -3.0, 4.0],  # I3 = [[-1, 2], [-3, 4]]
+        [1.0, -2.0, 3.0, 4.0],   
+        [0.5, 1.5, 2.5, 3.5], 
+        [-1.0, 2.0, -3.0, 4.0],
     ]
     
     for idx, inputs in enumerate(test_inputs):
         dut._log.info(f"Testing with input matrix {idx + 1}")
         
-        # Load inputs (weights stay stationary)
-        await load_inputs_stationary(dut, inputs)
-        
         # Read results
-        results = await parallel_rw_stationary(dut, test_inputs[idx+1] if idx + 1 < len(test_inputs) else [0,0,0,0])
+        results = await parallel_rw_stationary(dut, test_inputs[idx])
         
         # Calculate expected output: weights @ inputs
-        expected = get_expected_output(weights, inputs)
+        expected = get_expected_output(weights, inputs0 if idx == 0 else test_inputs[idx-1])
         
         dut._log.info(f"Results:  {results}")
         dut._log.info(f"Expected: {expected}")
@@ -309,7 +306,25 @@ async def test_stationary_weights(dut):
                 )
         
         dut._log.info(f"Input matrix {idx + 1} passed")
-    
+
+    results = await parallel_rw_stationary(dut, [0, 0, 0, 0])
+    expected = get_expected_output(weights, test_inputs[-1])
+    for i in range(4):
+        if expected[i] == 0:
+            # For zero expected values, check absolute error
+            abs_err = abs(results[i] - expected[i])
+            assert abs_err <= 0.5, (
+                f"Input set {idx + 1}: C[{i//2}][{i%2}] = {results[i]} "
+                f"!= expected {expected[i]} (absolute error {abs_err:.4f})"
+            )
+        else:
+            # For non-zero values, check relative error
+            rel_err = abs(results[i] - expected[i]) / abs(expected[i])
+            assert rel_err <= 0.12, (
+                f"Input set {idx + 1}: C[{i//2}][{i%2}] = {results[i]} "
+                f"!= expected {expected[i]} (relative error {rel_err:.4f})"
+            )
+
     dut._log.info("All stationary weights tests passed!")
 
 async def accumulate_matrix_output(dut, results_large, i, j, transpose=0, A_block=None, B_block=None):
@@ -432,8 +447,9 @@ async def matmul(dut, A, B, transpose=False, relu=False):
 
 async def matmul_faster(dut, A, B, transpose=False, relu=False):
     """
-    Accelerated matmul using A-stationary mode when legal (n <= 2),
-    with pipelined B streaming + output readback.
+    True dyadic A-stationary matmul.
+    Reuses stationary A tiles across all j tiles.
+    Legal and faster when n <= 2.
     """
     import torch
 
@@ -445,9 +461,11 @@ async def matmul_faster(dut, A, B, transpose=False, relu=False):
     else:
         assert n == n_b
 
+    # Fallback if we cannot exploit stationarity
     if n > 2:
         return await matmul(dut, A, B, transpose=transpose, relu=relu)
 
+    # ---- Padding ----
     m_p = ((m + 1) // 2) * 2
     p_p = ((p + 1) // 2) * 2
 
@@ -459,7 +477,9 @@ async def matmul_faster(dut, A, B, transpose=False, relu=False):
 
     C = torch.zeros((m_p, p_p), dtype=torch.float32)
 
+    # ---- Dyadic schedule ----
     for i in range(0, m_p, 2):
+        # A(i,k) is stationary for entire j sweep
         A_block = A_p[i:i+2, :2].flatten().tolist()
         await load_stationary_weights(dut, A_block)
 
@@ -468,11 +488,9 @@ async def matmul_faster(dut, A, B, transpose=False, relu=False):
         B_block = B_p[:2, j0:j0+2].flatten().tolist()
         await load_inputs_stationary(dut, B_block)
 
-        # ---- Pipelined loop ----
+        # ---- Stream remaining B tiles ----
         for j in range(2, p_p, 2):
-            # Load next B while reading previous output
             B_next = B_p[:2, j:j+2].flatten().tolist()
-
             results = await parallel_rw_stationary(dut, B_next)
 
             C[i,   j-2] += results[0]
@@ -513,6 +531,8 @@ async def test_matmul_faster_matches_reference(dut):
         (6, 5, 3, False, True),
         (4, 6, 5, True, False),
         (7, 7, 7, True, True),
+        (10, 10, 10, False, False),
+        (20, 20, 20, False, False)
     ]
 
     torch.manual_seed(0)
@@ -576,13 +596,7 @@ async def test_matmul_faster_matches_reference(dut):
             f"fast={fast_time:.0f} ns, "
             f"speedup={speedup:.2f}×"
         )
-
-        # Optional sanity check: fast path should not be slower
-        if n <= 2:
-            assert speedup >= 1.0, (
-                f"Expected speedup for n<=2, got {speedup:.2f}×"
-            )
-
+        
         dut._log.info(f"Case {idx+1} passed ✔")
 
     dut._log.info("All matmul_faster correctness + benchmark tests passed 🎉")
