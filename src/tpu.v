@@ -81,10 +81,10 @@ module tt_um_tpu (
     reg [15:0] hold2;
 
     always @(posedge clk) begin
-        if (mem_addr == 3'b101 || (load_weights && mem_addr == 3'b001)) begin
+        if (mem_addr == 3'b101) begin
             hold2 <= outputs[2];
             tail_hold <= {8'b0, outputs[3][7:0]};
-        end else if (mem_addr == 3'b110 || (load_weights && mem_addr == 3'b010)) begin
+        end else if (mem_addr == 3'b110) begin
             if (stat_weights) begin
                 tail_hold <= outputs[3];
             end else begin
@@ -114,19 +114,19 @@ module tt_um_tpu (
         end else begin
             uio_oe = 8'b11111111;
             case (mem_addr)
-                3'b000, 3'b100: begin
+                3'b100: begin
                     uo_out  = outputs[0][15:8];
                     uio_out = outputs[0][7:0];
                 end
-                3'b001, 3'b101: begin
+                3'b101: begin
                     uo_out  = outputs[1][15:8];
                     uio_out = outputs[1][7:0];
                 end
-                3'b010, 3'b110: begin
+                3'b110: begin
                     uo_out  = hold2[15:8];
                     uio_out = hold2[7:0];
                 end
-                3'b011, 3'b111: begin
+                3'b111: begin
                     uo_out  = tail_hold[15:8];
                     uio_out = tail_hold[7:0];
                 end

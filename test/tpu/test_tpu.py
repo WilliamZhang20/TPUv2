@@ -275,8 +275,6 @@ async def test_stationary_weights(dut):
         [0.5, 1.5, 2.5, 3.5], 
         [-1.0, 2.0, -3.0, 4.0],
     ]
-
-    weights2 = [5.0, -1.0, 0.0, 2.0]
     
     for idx, inputs in enumerate(test_inputs):
         dut._log.info(f"Testing with input matrix {idx + 1}")
@@ -309,8 +307,9 @@ async def test_stationary_weights(dut):
         
         dut._log.info(f"Input matrix {idx + 1} passed")
 
-    results = await parallel_rw_stationary(dut, weights2, load_weights=1)
+    results = await parallel_rw_stationary(dut, [0, 0, 0, 0])
     expected = get_expected_output(weights, test_inputs[-1])
+
     for i in range(4):
         if expected[i] == 0:
             # For zero expected values, check absolute error
@@ -447,32 +446,13 @@ async def matmul(dut, A, B, transpose=False, relu=False):
 
     return results_large[:m, :n_b] if transpose else results_large[:m, :p]
 
-async def parallel_rw_stationary_optimized(dut, inputs, load_weights=0, get_output=True):
-    """Optimized version that can skip output reading when not needed"""
-    # stat_weights=1 (bit 5), enable=1 (bit 4)
-    dut.uio_in.value = (load_weights << 6) | (1 << 5) | (1 << 4) | 1
-    results = []
-    
-    for i in range(4):
-        dut.ui_in.value = fp8_e4m3_encode(inputs[i])
-        await RisingEdge(dut.clk)
-        if get_output:
-            high = dut.uo_out.value.integer
-            low = dut.uio_out.value.integer
-            combined = (high << 8) | low
-            float_val = bf16_to_float(combined)
-            results.append(float_val)
-    
-    return results if get_output else []
-
 async def matmul_faster(dut, A, B, transpose=False, relu=False):
     """
-    True dyadic A-stationary matmul with debugging.
+    True dyadic A-stationary matmul.
     Reuses stationary A tiles across all j tiles.
     Legal and faster when n <= 2.
     """
     import torch
-    from cocotb.utils import get_sim_time
 
     m, n = A.shape
     n_b, p = B.shape
@@ -498,35 +478,16 @@ async def matmul_faster(dut, A, B, transpose=False, relu=False):
 
     C = torch.zeros((m_p, p_p), dtype=torch.float32)
 
-    # Debug counters
-    total_weight_loads = 0
-    total_tile_reuses = 0
-    setup_cycles = 0
-    compute_cycles = 0
-    teardown_cycles = 0
-
     # ---- Dyadic schedule ----
     for i in range(0, m_p, 2):
-        t_start = get_sim_time(units="ns")
-        
         # A(i,k) is stationary for entire j sweep
         A_block = A_p[i:i+2, :2].flatten().tolist()
         await load_stationary_weights(dut, A_block)
-        total_weight_loads += 1
-        
-        t_setup = get_sim_time(units="ns")
-        setup_cycles += (t_setup - t_start)
-
-        # Count how many j tiles we'll process with this A tile
-        j_tiles = p_p // 2
-        total_tile_reuses += j_tiles
 
         # ---- Prime pipeline with first B tile ----
         j0 = 0
         B_block = B_p[:2, j0:j0+2].flatten().tolist()
         await load_inputs_stationary(dut, B_block)
-
-        t_compute_start = get_sim_time(units="ns")
 
         # ---- Stream remaining B tiles ----
         for j in range(2, p_p, 2):
@@ -539,7 +500,6 @@ async def matmul_faster(dut, A, B, transpose=False, relu=False):
             C[i+1, j-1] += results[3]
 
         # ---- Drain final output ----
-        t_teardown_start = get_sim_time(units="ns")
         results = await parallel_rw_stationary(dut, [0, 0, 0, 0])
 
         C[i,   p_p-2] += results[0]
@@ -547,162 +507,10 @@ async def matmul_faster(dut, A, B, transpose=False, relu=False):
         C[i+1, p_p-2] += results[2]
         C[i+1, p_p-1] += results[3]
 
-        t_end = get_sim_time(units="ns")
-        compute_cycles += (t_teardown_start - t_compute_start)
-        teardown_cycles += (t_end - t_teardown_start)
-
-    if relu:
-        C = torch.maximum(C, torch.tensor(0.0))
-
-    # Debug output
-    dut._log.info(f"matmul_faster debug:")
-    dut._log.info(f"  Weight loads: {total_weight_loads}")
-    dut._log.info(f"  Tile reuses: {total_tile_reuses}")
-    dut._log.info(f"  Setup cycles: {setup_cycles:.0f} ns")
-    dut._log.info(f"  Compute cycles: {compute_cycles:.0f} ns") 
-    dut._log.info(f"  Teardown cycles: {teardown_cycles:.0f} ns")
-    dut._log.info(f"  Reuse ratio: {total_tile_reuses/total_weight_loads:.2f}")
-
-    return C[:m, :p]
-
-async def matmul_faster_optimized(dut, A, B, transpose=False, relu=False):
-    """
-    Optimized version that eliminates setup/teardown bottlenecks
-    """
-    import torch
-
-    m, n = A.shape
-    n_b, p = B.shape
-
-    if transpose:
-        assert n == p
-    else:
-        assert n == n_b
-
-    # Fallback if we cannot exploit stationarity
-    if n > 2:
-        return await matmul(dut, A, B, transpose=transpose, relu=relu)
-
-    # ---- Padding ----
-    m_p = ((m + 1) // 2) * 2
-    p_p = ((p + 1) // 2) * 2
-
-    A_p = torch.zeros((m_p, 2), dtype=torch.float32)
-    B_p = torch.zeros((2, p_p), dtype=torch.float32)
-
-    A_p[:m, :n] = A
-    B_p[:n, :p] = B
-
-    C = torch.zeros((m_p, p_p), dtype=torch.float32)
-
-    # ---- Optimized dyadic schedule ----
-    for i in range(0, m_p, 2):
-        # A(i,k) is stationary for entire j sweep
-        A_block = A_p[i:i+2, :2].flatten().tolist()
-        await load_stationary_weights(dut, A_block)
-
-        # Process all B tiles in one go - no separate priming/draining
-        for j in range(0, p_p, 2):
-            B_block = B_p[:2, j:j+2].flatten().tolist()
-            
-            if j == 0:
-                # First tile: load inputs without getting output
-                await load_inputs_stationary(dut, B_block)
-            else:
-                # Subsequent tiles: load next inputs while getting previous output
-                results = await parallel_rw_stationary(dut, B_block)
-                
-                # Store results from previous computation
-                prev_j = j - 2
-                C[i,   prev_j] += results[0]
-                C[i,   prev_j+1] += results[1]
-                C[i+1, prev_j] += results[2]
-                C[i+1, prev_j+1] += results[3]
-
-        # Get final output
-        results = await parallel_rw_stationary(dut, [0, 0, 0, 0])
-        final_j = p_p - 2
-        C[i,   final_j] += results[0]
-        C[i,   final_j+1] += results[1]
-        C[i+1, final_j] += results[2]
-        C[i+1, final_j+1] += results[3]
-
     if relu:
         C = torch.maximum(C, torch.tensor(0.0))
 
     return C[:m, :p]
-
-@cocotb.test()
-async def test_matmul_performance_analysis(dut):
-    """Detailed performance analysis of different matmul approaches"""
-    import torch
-    dut._log.info("=== MATMUL PERFORMANCE ANALYSIS ===")
-
-    # Clock
-    clock = Clock(dut.clk, 20, units="ns")
-    cocotb.start_soon(clock.start())
-
-    # Test small matrices where stationary should help
-    test_cases = [
-        (4, 2, 4, "Small n=2 case"),
-        (6, 2, 6, "Medium n=2 case"), 
-        (8, 2, 8, "Large n=2 case"),
-        (4, 4, 4, "n>2 fallback case")
-    ]
-
-    torch.manual_seed(42)
-    
-    for m, n, p, desc in test_cases:
-        dut._log.info(f"\n--- {desc}: A={m}x{n}, B={n}x{p} ---")
-
-        # Generate test matrices
-        A = (torch.rand(m, n) * 4.0 - 2.0).float()
-        B = (torch.rand(n, p) * 4.0 - 2.0).float()
-
-        # Test 1: Reference matmul
-        await reset_dut(dut)
-        t0 = get_sim_time(units="ns")
-        ref_out = await matmul(dut, A, B)
-        t1 = get_sim_time(units="ns")
-        ref_time = t1 - t0
-
-        # Test 2: Original matmul_faster (with debug)
-        await reset_dut(dut)
-        t2 = get_sim_time(units="ns")
-        fast_out = await matmul_faster(dut, A, B)
-        t3 = get_sim_time(units="ns")
-        fast_time = t3 - t2
-
-        # Test 3: Optimized version
-        await reset_dut(dut)
-        t4 = get_sim_time(units="ns")
-        opt_out = await matmul_faster_optimized(dut, A, B)
-        t5 = get_sim_time(units="ns")
-        opt_time = t5 - t4
-
-        # Verify correctness
-        assert torch.allclose(ref_out, fast_out, atol=1e-6), "matmul_faster mismatch"
-        assert torch.allclose(ref_out, opt_out, atol=1e-6), "matmul_faster_optimized mismatch"
-
-        # Performance analysis
-        fast_speedup = ref_time / fast_time if fast_time > 0 else float("inf")
-        opt_speedup = ref_time / opt_time if opt_time > 0 else float("inf")
-        opt_vs_fast = fast_time / opt_time if opt_time > 0 else float("inf")
-
-        dut._log.info(f"Performance results:")
-        dut._log.info(f"  Reference:  {ref_time:.0f} ns")
-        dut._log.info(f"  Fast:       {fast_time:.0f} ns (speedup: {fast_speedup:.2f}x)")
-        dut._log.info(f"  Optimized:  {opt_time:.0f} ns (speedup: {opt_speedup:.2f}x)")
-        dut._log.info(f"  Opt vs Fast: {opt_vs_fast:.2f}x improvement")
-
-        # Calculate theoretical speedup for n=2 cases
-        if n == 2:
-            total_tiles = (m * p) // 4  # Total 2x2 output tiles
-            weight_tiles = m // 2       # Unique A tiles
-            theoretical_reuse = total_tiles / weight_tiles
-            dut._log.info(f"  Theoretical tile reuse: {theoretical_reuse:.2f}x")
-
-    dut._log.info("\n=== ANALYSIS COMPLETE ===")
 
 @cocotb.test()
 async def test_matmul_faster_matches_reference(dut):
@@ -720,8 +528,11 @@ async def test_matmul_faster_matches_reference(dut):
     test_cases = [
         # (m, n, p, transpose, relu)
         (4, 4, 4, False, False),
+        (5, 3, 6, False, False),
         (6, 5, 3, False, True),
         (4, 6, 5, True, False),
+        (7, 7, 7, True, True),
+        (10, 10, 10, False, False),
         (20, 20, 20, False, False)
     ]
 
