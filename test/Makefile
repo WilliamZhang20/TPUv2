@@ -43,10 +43,10 @@ endif
 # Allow sharing configuration between design and testbench via `include`:
 COMPILE_ARGS 		+= -I$(SRC_DIR)
 
-.PHONY: all test-mac test-top
+.PHONY: all test-mac test-nn test-top
 
 all:
-	$(MAKE) test-mac test-top
+	$(MAKE) test-mac test-nn test-top
 
 test-mac:
 	$(MAKE) clean
@@ -58,11 +58,21 @@ test-mac:
 		WAVES_DIR=$(WAVES_ROOT)/mac/wave \
 		COMPILE_ARGS='$(COMPILE_ARGS) -DVCD_PATH="\"$(WAVES_ROOT)/mac/wave/mac_tb_$(TIMESTAMP).vcd\""'
 
+test-nn:
+	$(MAKE) clean
+	$(MAKE) sim \
+		TOPLEVEL=tb \
+		MODULE=train_mnist_net \
+		VERILOG_SOURCES="$(WAVES_ROOT)/tpu/tb.v $(addprefix $(SRC_DIR)/,tpu.v systolic_array_2x2.v PE.v normalize_fp.v control_unit.v memory.v)" \
+		PYTHONPATH=$(WAVES_ROOT)/tpu \
+		WAVES_DIR=$(WAVES_ROOT)/tpu/wave \
+		COMPILE_ARGS='$(COMPILE_ARGS) -DVCD_PATH="\"$(WAVES_ROOT)/tpu/wave/tpu_tb_$(TIMESTAMP).vcd\""'
+
 test-top:
 	$(MAKE) clean
 	$(MAKE) sim \
 		TOPLEVEL=tb \
-		MODULE=test \
+		MODULE=test_tpu \
 		VERILOG_SOURCES="$(WAVES_ROOT)/tpu/tb.v $(addprefix $(SRC_DIR)/,tpu.v systolic_array_2x2.v PE.v normalize_fp.v control_unit.v memory.v)" \
 		PYTHONPATH=$(WAVES_ROOT)/tpu \
 		WAVES_DIR=$(WAVES_ROOT)/tpu/wave \
