@@ -2,6 +2,6 @@ pytest==8.3.4
 cocotb==1.9.2
 numpy==2.1.3
 matplotlib
-torch
-torchao
-torchvision
+torch==2.9.0
+torchao==0.14.0
+torchvision==0.24.0
